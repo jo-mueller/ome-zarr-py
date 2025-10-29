@@ -280,6 +280,10 @@ def write_multiscale(
         msg = """The 'chunks' argument is deprecated and will be removed in version 0.5.
 Please use the 'storage_options' argument instead."""
         warnings.warn(msg, DeprecationWarning)
+
+    if scale is None:
+        scale = [1.0] * dims
+    
     datasets: list[dict] = []
     for path, data in enumerate(pyramid):
         options = _resolve_storage_options(storage_options, path)
@@ -343,21 +347,22 @@ Please use the 'storage_options' argument instead."""
             )
             arr[slice(None)] = data
 
-        datasets.append({"path": str(path)})
+        scale_trafo = fmt.generate_coordinate_transformations([data.shape], scale)[0]
+        scale_trafo[0]['input'] = str(path)
 
-    if coordinate_transformations is None:
-        shapes = [data.shape for data in pyramid]
-        coordinate_transformations = fmt.generate_coordinate_transformations(
-            shapes, scale
+        # we validate again later, but this catches length mismatch before zip(datasets...)
+        fmt.validate_coordinate_transformations(
+            dims, 1, [scale_trafo]
         )
+        
+        datasets.append({
+            "path": str(path),
+            "coordinateTransformations": scale_trafo
+        })
 
-    # we validate again later, but this catches length mismatch before zip(datasets...)
-    fmt.validate_coordinate_transformations(
-        dims, len(pyramid), coordinate_transformations
-    )
     if coordinate_transformations is not None:
-        for dataset, transform in zip(datasets, coordinate_transformations):
-            dataset["coordinateTransformations"] = transform
+        # TODO: Validate additional transforms before writing
+        metadata['coordinateTransformations'] = coordinate_transformations
 
     if len(dask_delayed) > 0 and not compute:
         write_multiscales_metadata_delayed = dask.delayed(write_multiscales_metadata)
