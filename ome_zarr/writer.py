@@ -509,6 +509,7 @@ def write_image(
     image: ArrayLike,
     group: zarr.Group | str,
     scale_factors: tuple[int, ...] = (2, 4, 8, 16),
+    scale: dict[str, float] | None = None,
     method: Methods | None = Methods.RESIZE,
     scaler: Scaler | None = None,
     fmt: Format | None = None,
@@ -529,6 +530,9 @@ def write_image(
         dimensions ordered (t, c, z, y, x). Can be a NumPy or Dask array.
     group : zarr.Group or str
          The zarr group to write the metadata, or a path to create
+    scale: dict[str, float], optional
+        The axis-wise scale of the image in physical units.
+        For non-spatial axes, the scale should be set to 1.0 or omitted.
     scale_factors : tuple of int, optional
         The downsampling factors for each pyramid level. Default: (2, 4, 8).
     method : ome_zarr.scale.Methods, optional
@@ -543,7 +547,7 @@ def write_image(
         The names of the axes, e.g. ["t", "c", "z", "y", "x"]. Ignored for versions 0.1 and 0.2.
         Required for version 0.3 or greater.
     coordinate_transformations : list of list of dict, optional
-        For each resolution, a list of transformation dicts (not validated). Each list of dicts
+        [DEPRECATED] For each resolution, a list of transformation dicts (not validated). Each list of dicts
         is added to each dataset in order.
     storage_options : dict or list of dict, optional
         Options to be passed on to the storage backend. A list must match the number of datasets
@@ -593,6 +597,21 @@ def write_image(
     axes = _get_valid_axes(len(image.shape), axes, fmt)
     dims = _extract_dims_from_axes(axes)
 
+    if coordinate_transformations is not None:
+        msg = (
+            "The 'coordinate_transformations' argument is deprecated and will be removed or repurposed in a future version. "
+            "Coordinate transformations are now automatically generated based on the shapes of the pyramid levels. "
+            "and the passed scale values by the `scale` keyword argument."
+        )
+        warnings.warn(msg, DeprecationWarning)
+        scale = {d: s for d, s in zip(dims, coordinate_transformations[0][0]['scale'])}
+
+    # default scale values are 1.0 for every axis
+    if scale is None:
+        scale = {d: 1.0 for d in dims}
+    else:
+        scale = {d: scale.get(d, 1.0) for d in dims}
+
     if method is None:
         method = Methods.RESIZE
 
@@ -614,7 +633,7 @@ def write_image(
         group,
         fmt=fmt,
         axes=axes,
-        coordinate_transformations=coordinate_transformations,
+        scale=scale,
         storage_options=storage_options,
         name=name,
         compute=compute,
@@ -642,7 +661,7 @@ def _write_pyramid_to_zarr(
     group: zarr.Group | str,
     fmt: Format | None = None,
     axes: AxesType = None,
-    coordinate_transformations: list[list[dict[str, Any]]] | None = None,
+    scale: dict[str, float] | None = None,
     storage_options: JSONDict | list[JSONDict] | None = None,
     name: str | None = None,
     compute: bool | None = True,
@@ -725,9 +744,18 @@ def _write_pyramid_to_zarr(
         da.compute(*delayed)
         delayed = []
 
-    if coordinate_transformations is None:
-        # shapes = [data.shape for data in delayed]
-        coordinate_transformations = fmt.generate_coordinate_transformations(shapes)
+    coordinate_transformations = fmt.generate_coordinate_transformations(shapes)
+    for idx in range(len(coordinate_transformations)):
+        for tf in coordinate_transformations[idx]:
+            if tf["type"] == "scale":
+                tf_type = "scale"
+            elif tf["type"] == "translation":
+                tf_type = "translation"
+            else:
+                continue
+
+            for j, (dim, parameter) in enumerate(zip(scale.keys(), tf[tf_type])):
+                tf[tf_type][j] = parameter * scale[dim]
 
     # we validate again later, but this catches length mismatch before zip(datasets...)
     fmt.validate_coordinate_transformations(
@@ -928,6 +956,7 @@ def write_labels(
     name: str,
     scaler: Scaler | None = Scaler(order=0),
     scale_factors: tuple[int, ...] = (2, 4, 8, 16),
+    scale: dict[str, float] | None = None,
     method: Methods = Methods.NEAREST,
     fmt: Format | None = None,
     axes: AxesType = None,
@@ -965,7 +994,7 @@ def write_labels(
         The names of the axes, e.g. ["t", "c", "z", "y", "x"]. Ignored for versions 0.1 and 0.2.
         Required for version 0.3 or greater.
     coordinate_transformations : list of list of dict, optional
-        For each resolution, a list of transformation dicts (not validated). Each list of dicts
+        [DEPRECATED] For each resolution, a list of transformation dicts (not validated). Each list of dicts
         is added to each dataset in order.
     storage_options : dict or list of dict, optional
         Options to be passed on to the storage backend. A list must match the number of datasets
@@ -1010,6 +1039,22 @@ def write_labels(
 
     axes = _get_valid_axes(len(labels.shape), axes, fmt)
     dims = _extract_dims_from_axes(axes)
+
+    if coordinate_transformations is not None:
+        msg = (
+            "The 'coordinate_transformations' argument is deprecated and will be removed or repurposed in a future version. "
+            "Coordinate transformations are now automatically generated based on the shapes of the pyramid levels. "
+            "and the passed scale values by the `scale` keyword argument."
+        )
+        warnings.warn(msg, DeprecationWarning)
+        scale = {d: s for d, s in zip(dims, coordinate_transformations[0][0]['scale'])}
+
+    # default scale values are 1.0 for every axis
+    if scale is None:
+        scale = {d: 1.0 for d in dims}
+    else:
+        scale = {d: scale.get(d, 1.0) for d in dims}
+
     pyramid = _build_pyramid(
         labels,
         list(scale_factors),
@@ -1031,7 +1076,7 @@ def write_labels(
         sub_group,
         fmt=fmt,
         axes=axes,
-        coordinate_transformations=coordinate_transformations,
+        scale=scale,
         storage_options=storage_options,
         name=name,
         compute=compute,

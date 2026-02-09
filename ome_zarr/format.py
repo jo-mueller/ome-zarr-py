@@ -280,9 +280,16 @@ class FormatV04(FormatV03):
         coordinate_transformations: list[list[dict[str, Any]]] = []
         # calculate minimal 'scale' transform based on pyramid dims
         for shape in shapes:
+            transforms = []
             assert len(shape) == len(data_shape)
             scale = [full / level for full, level in zip(data_shape, shape)]
-            coordinate_transformations.append([{"type": "scale", "scale": scale}])
+            transforms.append({"type": "scale", "scale": scale})
+
+            if any(s > 1 for s in scale):
+                translation = [(s - 1) / 2 for s in scale]
+                transforms.append({"type": "translation", "translation": translation})
+
+            coordinate_transformations.append(transforms)
 
         return coordinate_transformations
 
