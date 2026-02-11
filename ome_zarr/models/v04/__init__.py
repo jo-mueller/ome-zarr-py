@@ -1,4 +1,4 @@
-from .metadata import Axis, Scale, Translation, Transform, Dataset, MethodMetadata
+from .metadata import Axis, Scale, Translation, Transform, Dataset, MethodMetadata, Metadata
 
 __all__ = [
   "Axis",
