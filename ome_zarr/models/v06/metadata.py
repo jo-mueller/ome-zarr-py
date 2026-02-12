@@ -53,8 +53,7 @@ class Dataset:
 class Metadata:
 	coordinateSystems: list[CoordinateSystem]
 	datasets: list[Dataset]
-	version: str = "0.6"
-	name: str = "image"
+	name: str | None = "image"
 	coordinateTransformations: list[BaseTransform] | None = None
 	labels: str | None = None
 	type: str | None = None
@@ -69,7 +68,7 @@ class Metadata:
 		elif version == NGFFVersion.V05:
 			return self._to_v05()
 		else:
-			raise ValueError(f"Unsupported conversion from version {self.version} to {version}")
+			raise ValueError(f"Unsupported conversion from version 0.6 to {version}")
 
 	@classmethod
 	def from_version(cls, metadata: Union["Metadata_v05", "Metadata_v04"]) -> "Metadata":

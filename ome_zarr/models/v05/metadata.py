@@ -21,8 +21,7 @@ class Dataset:
 class Metadata:
     axes: list[Axis]
     datasets: list[Dataset]
-    version: str = "0.5"
-    name: str = "image"
+    name: str | None = "image"
     coordinateTransformations: list[Transform] | None = None
     labels: str | None = None
     type: str | None = None
@@ -37,7 +36,7 @@ class Metadata:
         elif version == NGFFVersion.V05:
             return self
         else:
-            raise ValueError(f"Unsupported conversion from version {self.version} to {version}")
+            raise ValueError(f"Unsupported conversion from version 0.5 to {version}")
 
     @classmethod
     def from_version(cls, metadata: Union["Metadata_v04", "Metadata_v06"]) -> "Metadata":
@@ -46,7 +45,7 @@ class Metadata:
         elif isinstance(metadata, "Metadata_v06"):
             return metadata._to_v05()
         else:
-            raise NotImplementedError("Conversion from v0.6 to v0.5 is not implemented yet")
+            raise NotImplementedError(f"Conversion from {type(metadata).__name__} to v0.5 is not implemented")
         
     def _to_v04(self) -> "Metadata_v04":
         from ..v04 import Metadata as Metadata_v04

@@ -45,7 +45,7 @@ class Metadata:
     axes: list[Axis]
     datasets: list[Dataset]
     version: NGFFVersion | str = NGFFVersion.V04
-    name: str = "image"
+    name: str | None = "image"
     coordinateTransformations: Optional[list[Transform]] = None
     labels: str | None = None
     type: Optional[str] = None
@@ -128,7 +128,6 @@ class Metadata:
         return cls(
             axes=metadata.axes,
             datasets=datasets,
-            version=metadata.version,
             name=metadata.name,
             coordinateTransformations=metadata.coordinateTransformations,
             labels=metadata.labels,
