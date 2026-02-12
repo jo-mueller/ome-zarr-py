@@ -1,20 +1,25 @@
 from __future__ import annotations
-
-from collections.abc import Sequence
-from dataclasses import InitVar, dataclass, field
-from typing import Any
+from dataclasses import InitVar, dataclass, field, asdict
+from typing import Any, Sequence
 
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models._v06.coordinate_transforms import Scale
-from ome_zarr_models._v06.multiscales import (
+# from ome_zarr_models._v06.coordinate_transforms import Scale
+# from ome_zarr_models._v06.multiscales import (
+#     Axis,
+#     CoordinateSystem,
+#     Dataset,
+#     Multiscale,
+# )
+from .models.v06.metadata import (
     Axis,
     CoordinateSystem,
     Dataset,
-    Multiscale,
+    Metadata,
+    Scale
 )
-
+from .models import NGFFVersion
 from .scale import Methods
 
 SPATIAL_DIMS = ["z", "y", "x"]
@@ -151,17 +156,17 @@ class NgffMultiscales:
     """
 
     image: InitVar[NgffImage]
-    scale_factors: InitVar[list[int]]
+    scale_factors: InitVar[Sequence[int]]
     method: str | Methods = Methods.RESIZE
     coordinate_system_name: InitVar[str | None] = "physical"
 
     images: list[NgffImage] = field(init=False)
-    metadata: Multiscale = field(init=False)
+    metadata: Metadata = field(init=False)
 
     def __post_init__(
         self,
         image: NgffImage,
-        scale_factors: list[int] = [2, 4, 8, 16],
+        scale_factors: Sequence[int] = [2, 4, 8, 16],
         coordinate_system_name: str | None = "physical",
     ):
         from .scale import _build_pyramid
@@ -209,8 +214,7 @@ class NgffMultiscales:
                         Scale(
                             input=f"scale{idx}",
                             output="physical",
-                            scale=list(level_scale.values()),
-                            path=None,
+                            scale=list(level_scale.values())
                         ),
                     ),
                 )
@@ -233,10 +237,10 @@ class NgffMultiscales:
             else:
                 axes.append(Axis(name=d, type="custom", unit=image.axes_units.get(d)))
 
-        self.metadata = Multiscale(
-            coordinateSystems=(
+        self.metadata = Metadata(
+            coordinateSystems=[
                 CoordinateSystem(name=coordinate_system_name, axes=axes),
-            ),
+            ],
             datasets=datasets,
             name=image.name,
         )
@@ -245,7 +249,7 @@ class NgffMultiscales:
     def from_image(
         cls,
         image: NgffImage,
-        scale_factors: list[int] | None = None,
+        scale_factors: Sequence[int] | None = None,
         method: str | Methods = Methods.RESIZE,
     ) -> NgffMultiscales:
         """
@@ -274,7 +278,7 @@ class NgffMultiscales:
         self,
         group: zarr.Group | str,
         storage_options: dict[str, Any] | None = None,
-        version: str | None = "0.6",
+        version: str | NGFFVersion = "0.6",
         compute: bool = True,
     ):
         """
@@ -326,14 +330,27 @@ class NgffMultiscales:
             group=group,
             storage_options=storage_options,
             fmt=fmt,
-            axes=[dict(ax) for ax in self.metadata.coordinateSystems[0].axes],
+            axes=[asdict(ax) for ax in self.metadata.coordinateSystems[0].axes],
             compute=compute,
         )
+
+        if isinstance(version, str):
+            version = NGFFVersion(version)
 
         if isinstance(group, str):
             group = zarr.open(group, mode="r+")
 
-        group.attrs["ome"] = self.metadata.dict()
+        if version == NGFFVersion.V04:
+            metadata_dict = asdict(self.metadata.to_version(NGFFVersion.V04))
+            metadata_dict = _recursive_pop_nones(metadata_dict)
+            group.attrs["multiscales"] = [metadata_dict]
+        elif version in [NGFFVersion.V05, NGFFVersion.V06]:
+            metadata_dict = {
+                "multiscales": [asdict(self.metadata.to_version(version))],
+                "version": version.value,
+            }
+            metadata_dict = _recursive_pop_nones(metadata_dict)
+            group.attrs["ome"] = metadata_dict
 
     @classmethod
     def from_ome_zarr(
@@ -353,19 +370,59 @@ class NgffMultiscales:
         NgffMultiscales
             A NgffMultiscales container with the loaded images and metadata.
         """
+        from dacite import from_dict, Config
 
         if isinstance(group, str):
             group = zarr.open(group, mode="r")
 
-        metadata_json = group.attrs.get("ome", None)
-        if metadata_json is None:
-            raise ValueError("OME metadata not found in Zarr group attributes")
+        def _finditem(obj, key):
+            if key in obj: return obj[key]
+            for k, v in obj.items():
+                if isinstance(v,dict):
+                    item = _finditem(v, key)
+                    if item is not None:
+                        return item
+                    
+        version = _finditem(group.attrs, "version")
 
-        # get version from metadata and validate against supported versions
-        if hasattr(metadata_json, "version"):
-            v = metadata_json["version"]
-
-        metadata = Multiscale.model_validate(metadata_json)
+        if version is None:
+            raise ValueError("Could not determine OME-Zarr version from group attributes")
+        
+        # Helper to disambiguate sequence union types by examining the first item's 'type' field
+        def sequence_type_hook(data, hint):
+            """Inspect sequence items to determine the correct union type."""
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                item_type = data[0].get('type')
+                if item_type == 'identity':
+                    from .models.v06.metadata import Identity
+                    return Sequence[Identity]
+                elif item_type == 'scale':
+                    from .models.v06.metadata import Scale
+                    return Sequence[Scale]
+                elif item_type == 'sequence':
+                    from .models.v06.metadata import TransformSequence
+                    return Sequence[TransformSequence]
+            return hint
+        
+        # Use strict_unions_match for proper type discrimination with 'type' field
+        config = Config(strict=False, strict_unions_match=True, type_hooks={Sequence: sequence_type_hook})
+        
+        version = NGFFVersion(version)
+        if version == NGFFVersion.V04:
+            from .models.v04 import Metadata
+            metadata = from_dict(data_class=Metadata, data=group.attrs["multiscales"], config=config)
+        elif version == NGFFVersion.V05:
+            from .models.v05 import Metadata
+            if "ome" not in group.attrs or "multiscales" not in group.attrs["ome"]:
+                raise ValueError("Missing required 'ome' or 'multiscales' attributes in group")
+            metadata = from_dict(data_class=Metadata, data=group.attrs["ome"]["multiscales"][0], config=config)
+        elif version == NGFFVersion.V06:
+            from .models.v06 import Metadata
+            if "ome" not in group.attrs or "multiscales" not in group.attrs["ome"]:
+                raise ValueError("Missing required 'ome' or 'multiscales' attributes in group")
+            metadata = from_dict(data_class=Metadata, data=group.attrs["ome"]["multiscales"][0], config=config)
+        else:
+            raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
         images = []
         for dataset in metadata.datasets:
@@ -392,3 +449,26 @@ class NgffMultiscales:
         instance.images = images
         instance.metadata = metadata
         return instance
+
+def _recursive_pop_nones(input: dict) -> dict:
+    """Recursively remove None values from a nested dictionary."""
+    output = {}
+    for key, value in input.items():
+        if isinstance(value, dict):
+            nested = _recursive_pop_nones(value)
+            if nested:
+                output[key] = nested
+        elif isinstance(value, list | tuple):
+            nested_list = []
+            for item in value:
+                if isinstance(item, dict):
+                    nested_item = _recursive_pop_nones(item)
+                    if nested_item:
+                        nested_list.append(nested_item)
+                elif item is not None:
+                    nested_list.append(item)
+            if nested_list:
+                output[key] = nested_list
+        elif value is not None:
+            output[key] = value
+    return output
