@@ -9,7 +9,7 @@ if TYPE_CHECKING:
   from ..v05 import Metadata as Metadata_v05
 
 @dataclass
-class coordinateSystem:
+class CoordinateSystem:
   name: str
   axes: list[Axis]
 
@@ -17,8 +17,8 @@ class coordinateSystem:
 class BaseTransform:
 	type: str
 	name: str | None = None
-	input: coordinateSystem | str | None = None
-	output: coordinateSystem | str | None = None
+	input: CoordinateSystem | str | None = None
+	output: CoordinateSystem | str | None = None
 
 @dataclass(kw_only=True)
 class Identity(BaseTransform):
@@ -51,7 +51,7 @@ class Dataset:
 
 @dataclass
 class Metadata:
-	coordinateSystems: list[coordinateSystem]
+	coordinateSystems: list[CoordinateSystem]
 	datasets: list[Dataset]
 	version: str = "0.6"
 	name: str = "image"
@@ -88,7 +88,7 @@ class Metadata:
 			Identity as Identity_v05
 		)
 		coordinate_systems = [
-			coordinateSystem(
+			CoordinateSystem(
 				name='physical',
 				axes=metadata.axes
 				)
@@ -134,7 +134,7 @@ class Metadata:
 		# (non-multiscales datasets)
 		coordinateTransformations: list[BaseTransform] = []
 		if metadata.coordinateTransformations and len(metadata.coordinateTransformations) > 0:
-			cs_target = coordinateSystem(
+			cs_target = CoordinateSystem(
 				name="output",
 				axes=metadata.axes
 			)
