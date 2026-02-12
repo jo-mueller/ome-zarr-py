@@ -35,6 +35,11 @@ class Translation(BaseTransform):
 	translation: list[float]
 
 @dataclass(kw_only=True)
+class Rotation(BaseTransform):
+	type: str = "rotation"
+	rotation: list[list[float]]	# rotation matrix
+
+@dataclass(kw_only=True)
 class Sequence(BaseTransform):
 	type: str = "sequence"
 	transformations: list[BaseTransform]
