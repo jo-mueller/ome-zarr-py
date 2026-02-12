@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Union, TYPE_CHECKING
+from typing import Sequence, Union, TYPE_CHECKING
 
 from ..v04 import Axis, MethodMetadata, Transform, Scale, Translation
 from ..ngff_versions import NGFFVersion
@@ -19,10 +19,10 @@ class Dataset:
 
 @dataclass
 class Metadata:
-    axes: list[Axis]
-    datasets: list[Dataset]
+    axes: Sequence[Axis]
+    datasets: Sequence[Dataset]
     name: str | None = "image"
-    coordinateTransformations: list[Transform] | None = None
+    coordinateTransformations: Sequence[Transform] | None = None
     labels: str | None = None
     type: str | None = None
     metadata: MethodMetadata | None = None

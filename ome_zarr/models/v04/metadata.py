@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Union, Any, TYPE_CHECKING
+from typing import Optional, Union, Any, TYPE_CHECKING, Sequence
 from ..ngff_versions import NGFFVersion
 
 if TYPE_CHECKING:
@@ -19,34 +19,34 @@ class Transform:
 
 @dataclass(kw_only=True)
 class Scale(Transform):
-    scale: list[float]
+    scale: Sequence[float]
     type: str = "scale"
 
 @dataclass(kw_only=True)
 class Translation(Transform):
-    translation: list[float]
+    translation: Sequence[float]
     type: str = "translation"
 
 @dataclass
 class Dataset:
     path: str
-    coordinateTransformations: Union[tuple[Scale,], tuple[Scale, Translation]]
+    coordinateTransformations: Union[Sequence[Scale], Sequence[Scale | Translation]]
 
 @dataclass
 class MethodMetadata:
     description: Optional[str] = ""
     method: Optional[str] = ""
     version: Optional[str] = ""
-    args: Optional[list[Any]] = None
+    args: Optional[Sequence[Any]] = None
     kwargs: Optional[dict[str, Any]] = None
 
 @dataclass
 class Metadata:
-    axes: list[Axis]
-    datasets: list[Dataset]
+    axes: Sequence[Axis]
+    datasets: Sequence[Dataset]
     version: NGFFVersion | str = NGFFVersion.V04
     name: str | None = "image"
-    coordinateTransformations: Optional[list[Transform]] = None
+    coordinateTransformations: Optional[Sequence[Transform]] = None
     labels: str | None = None
     type: Optional[str] = None
     metadata: Optional[MethodMetadata] = None

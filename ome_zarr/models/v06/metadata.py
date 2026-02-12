@@ -1,6 +1,6 @@
 from ..v05 import Axis, MethodMetadata
 from dataclasses import dataclass
-from typing import Optional, Union, TYPE_CHECKING
+from typing import Sequence, Union, TYPE_CHECKING
 
 from ..ngff_versions import NGFFVersion
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 @dataclass
 class CoordinateSystem:
   name: str
-  axes: list[Axis]
+  axes: Sequence[Axis]
 
 @dataclass(kw_only=True)
 class BaseTransform:
@@ -27,34 +27,34 @@ class Identity(BaseTransform):
 @dataclass(kw_only=True)
 class Scale(BaseTransform):
 	type: str = "scale"
-	scale: list[float]
+	scale: Sequence[float]
 
 @dataclass(kw_only=True)
 class Translation(BaseTransform):
 	type: str = "translation"
-	translation: list[float]
+	translation: Sequence[float]
 
 @dataclass(kw_only=True)
 class Rotation(BaseTransform):
 	type: str = "rotation"
-	rotation: list[list[float]]	# rotation matrix
+	rotation: Sequence[Sequence[float]]	# rotation matrix
 
 @dataclass(kw_only=True)
-class Sequence(BaseTransform):
+class TransformSequence(BaseTransform):
 	type: str = "sequence"
-	transformations: list[BaseTransform]
+	transformations: Sequence[BaseTransform]
 
 @dataclass
 class Dataset:
 	path: str
-	coordinateTransformations: tuple[Identity, ...] | tuple[Scale, ...] | tuple[Sequence, ...]
+	coordinateTransformations: Sequence[Identity] | Sequence[Scale] | Sequence[TransformSequence]
 
 @dataclass
 class Metadata:
-	coordinateSystems: list[CoordinateSystem]
-	datasets: list[Dataset]
+	coordinateSystems: Sequence[CoordinateSystem]
+	datasets: Sequence[Dataset]
 	name: str | None = "image"
-	coordinateTransformations: list[BaseTransform] | None = None
+	coordinateTransformations: Sequence[BaseTransform] | None = None
 	labels: str | None = None
 	type: str | None = None
 	metadata: MethodMetadata | None = None
@@ -114,7 +114,7 @@ class Metadata:
 					
 			if len(transforms) == 2:
 				transforms = [
-					Sequence(
+					TransformSequence(
 						name=f"scale{idx}_to_{coordinate_systems[0].name}",
 						input=ds.path,
 						output=coordinate_systems[0].name,
@@ -160,7 +160,7 @@ class Metadata:
 					
 			if len(coordinateTransformations) == 2:
 				coordinateTransformations = [
-					Sequence(
+					TransformSequence(
 						name=f"{coordinate_systems[0].name}_to_{cs_target.name}",
 						input=coordinate_systems[0].name,
 						output=cs_target.name,
@@ -200,7 +200,7 @@ class Metadata:
 					transforms.append(Scale_v05(scale=t.scale))
 				elif isinstance(t, Translation):
 					transforms.append(Translation_v05(translation=t.translation))
-				elif isinstance(t, Sequence):
+				elif isinstance(t, TransformSequence):
 					for st in t.transformations:
 						if isinstance(st, Identity):
 							transforms.append(Identity_v05())
