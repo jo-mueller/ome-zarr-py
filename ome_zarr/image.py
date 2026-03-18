@@ -132,7 +132,7 @@ class NgffMultiscales:
     """
 
     image: InitVar[NgffImage]
-    scale_factors: InitVar[list[int] | list[dict[str, int]] | None] = None
+    scale_factors: InitVar[list[int] | tuple[int, ...] | list[dict[str, int]] | None] = None
     method: str | Methods = Methods.RESIZE
     coordinateTransformations: InitVar[list[Scale | Translation | Identity] | None] = (
         None
@@ -144,11 +144,11 @@ class NgffMultiscales:
     def __post_init__(
         self,
         image: NgffImage,
-        scale_factors: list[int] | list[dict[str, int]] | None,
+        scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None,
         coordinateTransformations: list[Scale | Translation | Identity] | None,
     ):
         if scale_factors is None:
-            scale_factors = [2, 4, 8, 16]
+            scale_factors = (2, 4, 8, 16)
         from .scale import _build_pyramid
 
         self.name = image.name
