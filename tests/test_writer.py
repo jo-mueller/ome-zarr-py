@@ -120,18 +120,18 @@ class TestWriter:
         # make sure default is set correctly when not providing scale
         image = NgffImage(
             data=data,
-            dims=axes,
+            axes=axes,
         )
         assert all(image.scale[d] == 1.0 for d in axes)
 
         # convert to image classes
         labels_name = "test_labels"
         image = NgffImage(
-            data=data, dims=axes, scale=dict(zip(axes, TRANSFORMATIONS[0][0]["scale"]))
+            data=data, axes=axes, scale=dict(zip(axes, TRANSFORMATIONS[0][0]["scale"]))
         )
         labels = NgffImage(
             data=data_labels,
-            dims=axes,
+            axes=axes,
             scale=dict(zip(axes, TRANSFORMATIONS[0][0]["scale"])),
             name=labels_name,
         )
