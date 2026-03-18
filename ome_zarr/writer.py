@@ -979,7 +979,12 @@ def write_labels(
     group: zarr.Group | str,
     name: str,
     scaler: Scaler | None = Scaler(order=0),
-    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (2, 4, 8, 16),
+    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (
+        2,
+        4,
+        8,
+        16,
+    ),
     method: Methods = Methods.NEAREST,
     fmt: Format | None = None,
     axes: AxesType = None,
