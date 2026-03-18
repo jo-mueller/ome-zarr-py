@@ -254,7 +254,7 @@ class NgffMultiscales:
             Additional storage options to pass to Zarr, such as:
             - `compressor`: A Zarr compressor instance for compressing the data.
             - `chunks`: A tuple specifying the chunk shape for writing data.
-            To specifiy separately for each resolution level,
+            To specify separately for each resolution level,
             pass a list of dicts with storage options for each level, e.g.
             `[{'compressor': Blosc(), 'chunks': (64, 64, 64)}, {'compressor': Blosc(), 'chunks': (128, 128, 128)}, ...]`
         fmt : Format, optional
