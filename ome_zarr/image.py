@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass
 from typing import Any, cast
 
 import dask.array as da
@@ -106,7 +106,7 @@ class NgffMultiscales:
     image : NgffImage
         The base (highest resolution) image.
     scale_factors : list of int, optional
-        Downsampling factors for each pyramid level. 
+        Downsampling factors for each pyramid level.
         If passed as a list of integers (i.e. [2, 4, 8]),
         the same factors will be applied to all *spatial* dimensions
         except for the z-axis (if present).
