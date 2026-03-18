@@ -522,7 +522,12 @@ def write_image(
     image: ArrayLike,
     group: zarr.Group | str,
     scale: dict[str, float] | None = None,
-    scale_factors: list[int] | list[dict[str, int]] = [2, 4, 8, 16],
+    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (
+        2,
+        4,
+        8,
+        16,
+    ),
     axes_units: dict[str, str] | None = None,
     name: str = "image",
     method: Methods | None = Methods.RESIZE,
@@ -548,7 +553,7 @@ def write_image(
         The physical pixel size for each spatial dimension, e.g. {"z": 0.5, "y": 0.1, "x": 0.1}.
         If unset, the used pixel sizes default to 1.0 for all dimensions.
     scale_factors : Sequence[int] | list[dict[str, int]], optional
-        The downsampling factors for each pyramid level. Default: [2, 4, 8, 16].
+        The downsampling factors for each pyramid level. Default: (2, 4, 8, 16).
         Passing a list of integers (i.e., [2, 4, 8]) will apply the downsampling in all
         spatial dimensions *except the z dimension*, which will be left at a scale factor of 1.
         To apply downsampling to the z-dimension, pass the scale factors as a list of dicts, e.g.
@@ -1046,7 +1051,12 @@ def write_labels(
     group: zarr.Group | str,
     name: str,
     scaler: Scaler | None = Scaler(order=0),
-    scale_factors: list[int] | list[dict[str, int]] = [2, 4, 8, 16],
+    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (
+        2,
+        4,
+        8,
+        16,
+    ),
     method: Methods = Methods.NEAREST,
     fmt: Format | None = None,
     axes: AxesType = None,
@@ -1074,8 +1084,8 @@ def write_labels(
         [DEPRECATED] Scaler implementation for downsampling the label data. Passing this
         argument will raise a warning and is no longer supported. Use `scale_factors` and
         `method` instead.
-    scale_factors : Sequence[int] | list[dict[str, int]], optional
-        The downsampling factors for each pyramid level. Default: [2, 4, 8, 16].
+    scale_factors : Sequence[int] | tuple[int, ...] | list[dict[str, int]], optional
+        The downsampling factors for each pyramid level. Default: (2, 4, 8, 16).
         Passing a list of integers (i.e., [2, 4, 8]) will apply the downsampling in all
         spatial dimensions *except the z dimension*, which will be left at a scale factor of 1.
         To apply downsampling to the z-dimension, pass the scale factors as a list of dicts, e.g.
