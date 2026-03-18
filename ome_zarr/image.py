@@ -132,7 +132,9 @@ class NgffMultiscales:
     """
 
     image: InitVar[NgffImage]
-    scale_factors: InitVar[list[int] | tuple[int, ...] | list[dict[str, int]] | None] = None
+    scale_factors: InitVar[
+        list[int] | tuple[int, ...] | list[dict[str, int]] | None
+    ] = None
     method: str | Methods = Methods.RESIZE
     coordinateTransformations: InitVar[list[Scale | Translation | Identity] | None] = (
         None
