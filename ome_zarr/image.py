@@ -454,6 +454,11 @@ class NgffMultiscales:
         instance = cls.__new__(cls)
         instance.images = images
         instance.metadata = metadata
+        
+        if metadata.name is not None:
+            instance.name = metadata.name
+        else:
+            instance.name = "image"
 
         # add labels if they exist
         if list_of_labels:
