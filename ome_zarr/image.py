@@ -454,7 +454,7 @@ class NgffMultiscales:
         instance = cls.__new__(cls)
         instance.images = images
         instance.metadata = metadata
-        
+
         if metadata.name is not None:
             instance.name = metadata.name
         else:
