@@ -31,6 +31,7 @@ SPATIAL_DIMS = ("x", "y", "z")
 def _get_valid_axes(
     ndim: int | None = None,
     axes: AxesType = None,
+    axes_units: dict[str, str] | None = None,
     fmt: Format = CurrentFormat(),
 ) -> list[str] | list[dict[str, str]] | None:
     """Returns list of axes valid for fmt.version or raise exception if invalid"""
@@ -63,7 +64,7 @@ def _get_valid_axes(
         )
 
     # validates on init
-    axes_obj = Axes(axes, fmt)
+    axes_obj = Axes(axes, axes_units, fmt)
 
     return axes_obj.to_list(fmt)
 
@@ -263,8 +264,10 @@ def check_format(
 def write_multiscale(
     pyramid: ListOfArrayLike,
     group: zarr.Group,
+    scale: dict[str, float] | None = None,
     fmt: Format | None = None,
     axes: AxesType = None,
+    axes_units: dict[str, str] | None = None,
     coordinate_transformations: list[list[dict[str, Any]]] | None = None,
     storage_options: JSONDict | list[JSONDict] | None = None,
     name: str | None = None,
@@ -280,6 +283,11 @@ def write_multiscale(
         5-dimensional with dimensions ordered (t, c, z, y, x)
     :type group: :class:`zarr.Group`
     :param group: The group within the zarr store to store the data in
+    :type scale: dict of str to float, optional
+    :param scale:
+        The physical pixel size for each dimension, e.g. {"z": 0.1, "y": 0.1, "x": 0.5}.
+        The pixel sizes for every resolution level are calculated directly from the defined `scale` and
+        `scale_factors` for each level.
     :type chunks: int or tuple of ints, optional
     :param chunks:
         The size of the saved chunks to store the image.
@@ -295,6 +303,9 @@ def write_multiscale(
     :param axes:
         List of axes dicts, or names. Not needed for v0.1 or v0.2 or if 2D. Otherwise
         this must be provided
+    :param axes_units:
+        The physical units for each dimension, e.g. {"t": "millisecond", "z": "micrometer", "y": "micrometer", "x": "micrometer"}.
+        For a list of recommended units, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     :type coordinate_transformations: 2Dlist of dict, optional
     :param coordinate_transformations:
         List of transformations for each path.
@@ -316,7 +327,10 @@ def write_multiscale(
     """
     group, fmt = check_group_fmt(group, fmt)
     dims = len(pyramid[0].shape)
-    axes = _get_valid_axes(dims, axes, fmt)
+    axes = _get_valid_axes(dims, axes, axes_units=axes_units, fmt=fmt)
+
+    if not scale:
+        scale = dict.fromkeys(_extract_dims_from_axes(axes), 1.0)
 
     pyramid = [
         da.from_array(level) if not isinstance(level, da.Array) else level
@@ -326,7 +340,9 @@ def write_multiscale(
         pyramid,
         group,
         fmt=fmt,
+        scale=scale,
         axes=axes,
+        axes_units=axes_units,
         coordinate_transformations=coordinate_transformations,
         storage_options=storage_options,
         name=name,
@@ -342,6 +358,7 @@ def write_multiscales_metadata(
     datasets: list[dict],
     fmt: Format | None = None,
     axes: AxesType = None,
+    axes_units: dict[str, str] | None = None,
     name: str | None = None,
     **metadata: str | JSONDict | list[JSONDict],
 ) -> None:
@@ -363,6 +380,10 @@ def write_multiscales_metadata(
     :param axes:
       The names of the axes. e.g. ["t", "c", "z", "y", "x"].
       Ignored for versions 0.1 and 0.2. Required for version 0.3 or greater.
+    :type axes_units: dict of str to str, optional
+    :param axes_units:
+      The physical units for each dimension, e.g. {"t": "millisecond", "z": "micrometer", "y": "micrometer", "x": "micrometer"}.
+      For a list of recommended units, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     """
 
     group, fmt = check_group_fmt(group, fmt)
@@ -372,7 +393,7 @@ def write_multiscales_metadata(
             LOGGER.info("axes ignored for version 0.1 or 0.2")
             axes = None
         else:
-            axes = _get_valid_axes(axes=axes, fmt=fmt)
+            axes = _get_valid_axes(axes=axes, axes_units=axes_units, fmt=fmt)
             if axes is not None:
                 ndim = len(axes)
     if (
@@ -511,12 +532,7 @@ def write_image(
     image: ArrayLike,
     group: zarr.Group | str,
     scale: dict[str, float] | None = None,
-    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (
-        2,
-        4,
-        8,
-        16,
-    ),
+    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] = (2, 4, 8, 16),
     axes_units: dict[str, str] | None = None,
     name: str = "image",
     method: Methods | None = Methods.RESIZE,
@@ -538,11 +554,10 @@ def write_image(
         dimensions ordered (t, c, z, y, x). Can be a NumPy or Dask array.
     group : zarr.Group or str
         The zarr group to write the metadata, or a path to create
-    scale: dict of str to float, optional
-        The physical pixel size for each spatial dimension, e.g. {"z": 0.5, "y": 0.1, "x": 0.1}.
-        If unset, the used pixel sizes default to 1.0 for all dimensions.
-    scale_factors : Sequence[int] | list[dict[str, int]], optional
-        The downsampling factors for each pyramid level. Default: (2, 4, 8, 16).
+    scale : dict of str to float, optional
+        The physical pixel size for each dimension, e.g. {"z": 0.1, "y": 0.1, "x": 0.5}.
+    scale_factors : list of int or list of dict, optional
+        The downsampling factors for each pyramid level. Default: [2, 4, 8, 16].
         Passing a list of integers (i.e., [2, 4, 8]) will apply the downsampling in all
         spatial dimensions *except the z dimension*, which will be left at a scale factor of 1.
         To apply downsampling to the z-dimension, pass the scale factors as a list of dicts, e.g.
@@ -552,8 +567,9 @@ def write_image(
     axes_units : dict of str to str, optional
         The units for each spatial dimension, e.g. {"t": "second", "y": "micrometer", "x": "micrometer"}.
         Unspecified axes will be omitted from the metadata.
+        For a list of recommended units, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     name: str, optional
-        The name of the image, to be included in the metadata. Defaults to "image".
+        The name of the image, to be included in the metadata. Defaults to "image".        
     method : ome_zarr.scale.Methods, optional
         Downsampling method to use.
         Available methods are:
@@ -572,8 +588,8 @@ def write_image(
         The names of the axes, e.g. ["t", "c", "z", "y", "x"]. Ignored for versions 0.1 and 0.2.
         Required for version 0.3 or greater.
     coordinate_transformations : list of list of dict, optional
-        For each resolution, a list of transformation dicts (not validated). Each list of dicts
-        is added to each dataset in order.
+        [Deprecated] For each resolution, a list of transformation dicts (not validated).
+        Each list of dicts is added to each dataset in order.
     storage_options : dict or list of dict, optional
         Options to be passed on to the storage backend. A list must match the number of datasets
         in a multiresolution pyramid. Allows different chunk sizes for each level.
@@ -606,7 +622,7 @@ def write_image(
             f"Writing ome-zarr v{fmt.version} is deprecated and has been removed in version 0.15.0."
         )
 
-    axes = _get_valid_axes(len(image.shape), axes, fmt)
+    axes = _get_valid_axes(len(image.shape), axes, axes_units=axes_units, fmt=fmt)
     dims = _extract_dims_from_axes(axes)
 
     # default settings for scale
@@ -688,6 +704,8 @@ def _write_pyramid_to_zarr(
     pyramid: list[da.Array],
     group: zarr.Group,
     fmt: Format,
+    scale: dict[str, float],
+    axes_units: dict[str, str] | None = None,
     axes: AxesType = None,
     coordinate_transformations: list[list[dict[str, Any]]] | None = None,
     storage_options: JSONDict | list[JSONDict] | None = None,
@@ -697,6 +715,13 @@ def _write_pyramid_to_zarr(
 ) -> list:
 
     group, fmt = check_group_fmt(group, fmt)
+    _axes = _get_valid_axes(len(pyramid[0].shape), axes, axes_units=axes_units, fmt=fmt)
+    dims = _extract_dims_from_axes(_axes)
+
+    # make sure every axis is represented in `scale`;
+    # coerce to 1.0 if not provided
+    # but don't allow missing axes to avoid silent errors
+    scale = {d: scale.get(d, 1.0) for d in dims}
 
     # Set up common kwargs for da.to_zarr
     # zarr_array_kwargs needs dask 2025.12.0 or later
@@ -778,6 +803,13 @@ def _write_pyramid_to_zarr(
         # shapes = [data.shape for data in delayed]
         coordinate_transformations = fmt.generate_coordinate_transformations(shapes)
 
+        if coordinate_transformations:
+            for idx, transform in enumerate(coordinate_transformations):
+                transform[0]["scale"] = [
+                    transform[0]["scale"][i] * scale.get(d, 1.0)
+                    for i, d in enumerate(dims)
+                ]
+
     # we validate again later, but this catches length mismatch before zip(datasets...)
     fmt.validate_coordinate_transformations(
         len(pyramid[0].shape), len(datasets), coordinate_transformations
@@ -789,11 +821,13 @@ def _write_pyramid_to_zarr(
         write_multiscales_metadata_delayed = dask.delayed(write_multiscales_metadata)
         return delayed + [
             bind(write_multiscales_metadata_delayed, delayed)(
-                group, datasets, fmt, axes, name, **metadata
+                group, datasets, fmt, axes, axes_units, name, **metadata
             )
         ]
     else:
-        write_multiscales_metadata(group, datasets, fmt, axes, name, **metadata)
+        write_multiscales_metadata(
+            group, datasets, fmt, axes, axes_units, name, **metadata
+        )
         return delayed
 
 
@@ -888,8 +922,10 @@ def write_multiscale_labels(
     pyramid: list,
     group: zarr.Group | str,
     name: str,
+    scale: dict[str, float] | None = None,
     fmt: Format | None = None,
     axes: AxesType = None,
+    axes_units: dict[str, str] | None = None,
     coordinate_transformations: list[list[dict[str, Any]]] | None = None,
     storage_options: JSONDict | list[JSONDict] | None = None,
     label_metadata: JSONDict | None = None,
@@ -911,6 +947,11 @@ def write_multiscale_labels(
     :param group: The zarr group or path to write the metadata in.
     :type name: str, optional
     :param name: The name of this labels data.
+    :type scale: dict of str to float, optional
+    :param scale:
+        The physical pixel size for each dimension, e.g. {"z": 0.1, "y": 0.1, "x": 0.5}.
+        The pixel sizes for every resolution level are calculated directly from the defined `scale` and
+        `scale_factors` for each level.
     :type chunks: int or tuple of ints, optional
     :type fmt: :class:`ome_zarr.format.Format`, optional
     :param fmt:
@@ -920,6 +961,10 @@ def write_multiscale_labels(
     :param axes:
       The names of the axes. e.g. ["t", "c", "z", "y", "x"].
       Ignored for versions 0.1 and 0.2. Required for version 0.3 or greater.
+    :type axes_units: dict of str to str, optional
+    :param axes_units:
+        The physical units for each dimension, e.g. {"t": "millisecond", "z": "micrometer", "y": "micrometer", "x": "micrometer"}.
+        For a list of recommended units, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     :type coordinate_transformations: list of dict
     :param coordinate_transformations:
       For each resolution, we have a List of transformation Dicts (not validated).
@@ -950,11 +995,19 @@ def write_multiscale_labels(
         for level in pyramid
     ]
 
+    if scale is None:
+        _axes = _get_valid_axes(
+            len(pyramid[0].shape), axes, axes_units=axes_units, fmt=fmt
+        )
+        scale = dict.fromkeys(_extract_dims_from_axes(_axes), 1.0)
+
     dask_delayed_jobs = _write_pyramid_to_zarr(
         pyramid,
         sub_group,
         fmt=fmt,
+        scale=scale,
         axes=axes,
+        axes_units=axes_units,
         coordinate_transformations=coordinate_transformations,
         storage_options=storage_options,
         name=name,
@@ -975,13 +1028,10 @@ def write_labels(
     labels: np.ndarray | da.Array,
     group: zarr.Group | str,
     name: str,
+    scale: dict[str, float] | None = None,
     scaler: Scaler | None = Scaler(order=0),
-    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = (
-        2,
-        4,
-        8,
-        16,
-    ),
+    scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] = (2, 4, 8, 16),
+    axes_units: dict[str, str] | None = None,
     method: Methods = Methods.NEAREST,
     fmt: Format | None = None,
     axes: AxesType = None,
@@ -1003,6 +1053,10 @@ def write_labels(
         dimensions ordered (t, c, z, y, x).
     group : zarr.Group
         The group within the zarr store to write the metadata in.
+    scale: dict of str to float, optional
+        The physical pixel size for each dimension, e.g. {"z": 0.1, "y": 0.1, "x": 0.5}.
+        THe pixel sizes for every resolution level are calculated directly from the defined `scale` and
+        `scale_factors` for each level.
     name : str
         The name of this labels data.
     scaler : ome_zarr.scale.Scaler, optional
@@ -1016,6 +1070,11 @@ def write_labels(
         To apply downsampling to the z-dimension, pass the scale factors as a list of dicts, e.g.
         `[{"z": 1, "y": 2, "x": 2}, {"z": 1, "y": 4, "x": 4}, {"z": 1, "y": 8, "x": 8}]`.
         This default behavior may change in future versions.
+    axes_units : dict of str to str, optional
+        The physical units for each dimension,
+        e.g. {"t": "millisecond", "z": "micrometer", "y": "micrometer", "x": "micrometer"}.
+        For a list of recommended units,
+        see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     method : ome_zarr.scale.Methods, optional
         Downsampling method to use. Default: Methods.NEAREST (recommended for labels).
         See also `ome_zarr.scale.Methods` for available methods.
@@ -1025,7 +1084,7 @@ def write_labels(
         The names of the axes, e.g. ["t", "c", "z", "y", "x"]. Ignored for versions 0.1 and 0.2.
         Required for version 0.3 or greater.
     coordinate_transformations : list of list of dict, optional
-        For each resolution, a list of transformation dicts (not validated). Each list of dicts
+        [DEPRECATED] For each resolution, a list of transformation dicts (not validated). Each list of dicts
         is added to each dataset in order.
     storage_options : dict or list of dict, optional
         Options to be passed on to the storage backend. A list must match the number of datasets
@@ -1059,8 +1118,11 @@ def write_labels(
             f"Writing ome-zarr v{fmt.version} is deprecated and has been removed in version 0.15.0."
         )
 
-    axes = _get_valid_axes(len(labels.shape), axes, fmt)
+    axes = _get_valid_axes(len(labels.shape), axes, axes_units=axes_units, fmt=fmt)
     dims = _extract_dims_from_axes(axes)
+
+    if scale is None:
+        scale = dict.fromkeys(dims, 1.0)
 
     if scaler is not None:
         msg = """
