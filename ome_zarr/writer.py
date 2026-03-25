@@ -569,7 +569,7 @@ def write_image(
         Unspecified axes will be omitted from the metadata.
         For a list of recommended units, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#axes-metadata).
     name: str, optional
-        The name of the image, to be included in the metadata. Defaults to "image".        
+        The name of the image, to be included in the metadata. Defaults to "image".
     method : ome_zarr.scale.Methods, optional
         Downsampling method to use.
         Available methods are:
