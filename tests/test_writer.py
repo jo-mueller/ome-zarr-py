@@ -499,7 +499,6 @@ class TestWriter:
             grp_path = self.path_v3 / "test"
             fmt = CurrentFormat()
             zarr_attrs = "zarr.json"
-            zarr_array = "zarr.json"
             group = self.group_v3
 
         # Size 100 tests resize shapes: https://github.com/ome/ome-zarr-py/issues/219
