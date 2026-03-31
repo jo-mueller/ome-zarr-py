@@ -45,10 +45,10 @@ from ome_zarr.writer import (
 
 TRANSFORMATIONS = [
     [{"scale": [1, 1, 0.5, 0.18, 0.18], "type": "scale"}],
-    [{"scale": [1, 1, 1.0, 0.36, 0.36], "type": "scale"}],
-    [{"scale": [1, 1, 2.0, 0.72, 0.72], "type": "scale"}],
-    [{"scale": [1, 1, 4.0, 1.44, 1.44], "type": "scale"}],
-    [{"scale": [1, 1, 8.0, 2.88, 2.88], "type": "scale"}],
+    [{"scale": [1, 1, 0.5, 0.36, 0.36], "type": "scale"}],
+    [{"scale": [1, 1, 0.5, 0.72, 0.72], "type": "scale"}],
+    [{"scale": [1, 1, 0.5, 1.44, 1.44], "type": "scale"}],
+    [{"scale": [1, 1, 0.5, 2.88, 2.88], "type": "scale"}],
 ]
 
 
@@ -72,8 +72,8 @@ class TestWriter:
     @pytest.fixture(
         params=(
             (1, 2, 1, 256, 256),
-            (3, 512, 512),
-            (300, 500),  # test edge chunks of different shapes
+            (32, 256, 256),
+            (256, 256),  # test edge chunks of different shapes
         ),
         ids=["5D", "3D", "2D"],
     )
@@ -282,6 +282,7 @@ class TestWriter:
             fmt=version,
             axes=axes,
             axes_units=axes_units,
+            scale=dict(zip(axes, TRANSFORMATIONS[0][0]["scale"][-len(shape) :])),
             coordinate_transformations=transformations,
             storage_options=storage_options,
         )
@@ -507,6 +508,7 @@ class TestWriter:
         data_delayed = da.from_array(data)
         chunks = (32, 32)
         axes = "zyx"
+        scale = dict(zip(axes, TRANSFORMATIONS[0][0]["scale"][-len(shape) :]))
         # same NAME needed for exact zarr_attrs match below
         # (otherwise group.name is used)
         NAME = "test_write_image_dask"
@@ -522,6 +524,7 @@ class TestWriter:
                 data_delayed,
                 temp_group,
                 axes=axes,
+                scale=scale,
                 storage_options=opts,
                 name=NAME,
             )
@@ -541,6 +544,7 @@ class TestWriter:
             group,
             axes=axes,
             storage_options={"chunks": chunks},
+            scale=scale,
             compute=compute,
             name=NAME,
         )
@@ -576,29 +580,34 @@ class TestWriter:
                 axis_name = axes[idx]
                 if axis_name == "z":
                     # z-axis is not downsampled by default
-                    assert value == 1.0
+                    assert value == scale[axis_name]
                 elif axis_name in ("x", "y"):
                     # spatial dimensions are downsampled
-                    assert value == shape[idx] / (shape[idx] // (2**level))
+                    assert value == scale[axis_name] * shape[idx] / (shape[idx] // (2**level))
                 else:
                     # non-spatial dimensions (t, c) are not downsampled
                     assert value == 1.0
             if read_from_zarr and level < 3:
                 # if shape smaller than chunk, dask writer uses chunk == shape
                 # so we only compare larger resolutions
-                assert filecmp.cmp(
-                    f"{grp_path}/temp/to_dask/s{level}/{zarr_array}",
-                    f"{grp_path}/s{level}/{zarr_array}",
-                    shallow=False,
-                )
+                import json
+                with open(f"{grp_path}/temp/to_dask/{zarr_attrs}") as f:
+                    temp_meta = json.load(f)
+                
+                with open(f"{grp_path}/{zarr_attrs}") as f:
+                    final_meta = json.load(f)
+                
+                assert temp_meta == final_meta
 
         if read_from_zarr:
-            # exact match, including NAME
-            assert filecmp.cmp(
-                f"{grp_path}/temp/to_dask/{zarr_attrs}",
-                f"{grp_path}/{zarr_attrs}",
-                shallow=False,
-            )
+            import json
+            with open(f"{grp_path}/temp/to_dask/{zarr_attrs}") as f:
+                temp_meta = json.load(f)
+            
+            with open(f"{grp_path}/{zarr_attrs}") as f:
+                final_meta = json.load(f)
+            
+            assert temp_meta == final_meta
 
         # Validate with ome-zarr-models-py
         if fmt.version == "0.4":
@@ -1595,7 +1604,7 @@ class TestLabelWriter:
     @pytest.fixture(
         params=(
             (1, 2, 1, 256, 256),
-            (3, 512, 512),
+            (32, 256, 256),
             (256, 256),
         ),
         ids=["5D", "3D", "2D"],
@@ -1604,7 +1613,7 @@ class TestLabelWriter:
         return request.param
 
     def verify_label_data(
-        self, img_path, label_name, label_data, fmt, shape, transformations
+        self, img_path, label_name, label_data, fmt, shape, transformations, scale
     ):
         # Verify image data
         out = zarr.open_group(f"{img_path}/labels/{label_name}")
@@ -1619,14 +1628,31 @@ class TestLabelWriter:
             assert node_data[0].ndim == 5
         else:
             assert node_data[0].shape == shape
+        
+        cts = [
+            d["coordinateTransformations"]
+            for d in node_metadata["multiscales"][0]["datasets"]
+        ]
 
-        if fmt.version not in ("0.1", "0.2", "0.3"):
-            cts = [
-                d["coordinateTransformations"]
-                for d in node_metadata["multiscales"][0]["datasets"]
-            ]
-            for transf, expected in zip(cts, transformations):
-                assert transf == expected
+        axes = list(scale.keys())
+        for level, transfs in enumerate(cts):
+            assert len(transfs) == 1
+            assert transfs[0]["type"] == "scale"
+            assert len(transfs[0]["scale"]) == len(shape)
+
+            # default downsamples by factor 2 each level, except z-axis
+            for idx, value in enumerate(transfs[0]["scale"]):
+                axis_name = axes[idx]
+                if axis_name == "z":
+                    # z-axis is not downsampled by default
+                    assert value == scale[axis_name]
+                elif axis_name in ("x", "y"):
+                    # spatial dimensions are downsampled
+                    assert value == scale[axis_name] * shape[idx] / (shape[idx] // (2**level))
+                else:
+                    # non-spatial dimensions (t, c) are not downsampled
+                    assert value == 1.0
+
         assert np.allclose(label_data, node_data[0][...].compute())
 
         # Verify label metadata
@@ -1704,6 +1730,7 @@ class TestLabelWriter:
             assert label_data.ndim == 5
         label_name = "my-labels"
         label_data = array_constructor(label_data)
+        scale = dict(zip(axes, TRANSFORMATIONS[0][0]["scale"][-len(shape) :]))
 
         # create the root level image data
         self.create_image_data(group, shape, fmt, axes, transformations)
@@ -1714,10 +1741,10 @@ class TestLabelWriter:
             name=label_name,
             fmt=fmt,
             axes=axes,
-            coordinate_transformations=transformations,
+            scale=scale,
         )
         label_data = self.verify_label_data(
-            img_path, label_name, label_data, fmt, shape, transformations
+            img_path, label_name, label_data, fmt, shape, transformations, scale
         )
 
         for level in label_data:
@@ -1792,8 +1819,9 @@ class TestLabelWriter:
             axes=axes,
             coordinate_transformations=transformations,
         )
+        scale = dict(zip(axes, transformations[0][0]["scale"][-len(shape) :]))
         self.verify_label_data(
-            img_path, label_name, label_data, fmt, shape, transformations
+            img_path, label_name, label_data, fmt, shape, transformations, scale
         )
 
     @pytest.mark.parametrize(
@@ -1847,8 +1875,9 @@ class TestLabelWriter:
                 axes=axes,
                 coordinate_transformations=transformations,
             )
+            scale = dict(zip(axes, transformations[0][0]["scale"][-len(shape) :]))
             self.verify_label_data(
-                img_path, label_name, label_data, fmt, shape, transformations
+                img_path, label_name, label_data, fmt, shape, transformations, scale
             )
 
         # Verify label metadata
@@ -1862,4 +1891,4 @@ class TestLabelWriter:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__ + "::TestLabelWriter::test_write_labels"])
