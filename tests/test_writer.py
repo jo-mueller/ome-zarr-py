@@ -1,4 +1,3 @@
-import filecmp
 import json
 import pathlib
 import re
@@ -582,7 +581,9 @@ class TestWriter:
                     assert value == scale[axis_name]
                 elif axis_name in ("x", "y"):
                     # spatial dimensions are downsampled
-                    assert value == scale[axis_name] * shape[idx] / (shape[idx] // (2**level))
+                    assert value == scale[axis_name] * shape[idx] / (
+                        shape[idx] // (2**level)
+                    )
                 else:
                     # non-spatial dimensions (t, c) are not downsampled
                     assert value == 1.0
@@ -590,22 +591,24 @@ class TestWriter:
                 # if shape smaller than chunk, dask writer uses chunk == shape
                 # so we only compare larger resolutions
                 import json
+
                 with open(f"{grp_path}/temp/to_dask/{zarr_attrs}") as f:
                     temp_meta = json.load(f)
-                
+
                 with open(f"{grp_path}/{zarr_attrs}") as f:
                     final_meta = json.load(f)
-                
+
                 assert temp_meta == final_meta
 
         if read_from_zarr:
             import json
+
             with open(f"{grp_path}/temp/to_dask/{zarr_attrs}") as f:
                 temp_meta = json.load(f)
-            
+
             with open(f"{grp_path}/{zarr_attrs}") as f:
                 final_meta = json.load(f)
-            
+
             assert temp_meta == final_meta
 
         # Validate with ome-zarr-models-py
@@ -1627,7 +1630,7 @@ class TestLabelWriter:
             assert node_data[0].ndim == 5
         else:
             assert node_data[0].shape == shape
-        
+
         cts = [
             d["coordinateTransformations"]
             for d in node_metadata["multiscales"][0]["datasets"]
@@ -1647,7 +1650,9 @@ class TestLabelWriter:
                     assert value == scale[axis_name]
                 elif axis_name in ("x", "y"):
                     # spatial dimensions are downsampled
-                    assert value == scale[axis_name] * shape[idx] / (shape[idx] // (2**level))
+                    assert value == scale[axis_name] * shape[idx] / (
+                        shape[idx] // (2**level)
+                    )
                 else:
                     # non-spatial dimensions (t, c) are not downsampled
                     assert value == 1.0

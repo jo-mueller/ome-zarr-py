@@ -6,11 +6,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeAlias
 
-import dask
 import dask.array as da
 import numpy as np
 import zarr
-from dask.graph_manipulation import bind
 from numcodecs import Blosc
 
 from .axes import Axes
@@ -669,11 +667,7 @@ def write_image(
         method = Methods.RESIZE
 
     ngff_image = NgffImage(
-        data=image,
-        scale=scale,
-        axes=dims,
-        name=name,
-        axes_units=axes_units
+        data=image, scale=scale, axes=dims, name=name, axes_units=axes_units
     )
     ngff_multiscales = NgffMultiscales(
         image=ngff_image,
@@ -822,9 +816,7 @@ def _write_pyramid_to_zarr(
         for dataset, transform in zip(datasets, coordinate_transformations):
             dataset["coordinateTransformations"] = transform
 
-    write_multiscales_metadata(
-        group, datasets, fmt, axes, axes_units, name, **metadata
-    )
+    write_multiscales_metadata(group, datasets, fmt, axes, axes_units, name, **metadata)
     return delayed
 
 
@@ -1136,11 +1128,7 @@ def write_labels(
         method = Methods.NEAREST
 
     ngff_image = NgffImage(
-        data=labels,
-        axes=dims,
-        name=name,
-        scale=scale,
-        axes_units=axes_units
+        data=labels, axes=dims, name=name, scale=scale, axes_units=axes_units
     )
     ngff_multiscales = NgffMultiscales(
         image=ngff_image,
