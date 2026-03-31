@@ -492,7 +492,6 @@ class TestWriter:
             grp_path = self.path / "test"
             fmt = FormatV04()
             zarr_attrs = ".zattrs"
-            zarr_array = ".zarray"
             group = self.group
         else:
             grp_path = self.path_v3 / "test"
