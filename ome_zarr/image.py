@@ -302,8 +302,10 @@ class NgffMultiscales:
             group=group,
             storage_options=storage_options,
             fmt=fmt,
+            scale=self.images[0].scale,
             axes=[dict(ax) for ax in self.metadata.axes],
             compute=compute,
+            name=self.name,
         )
 
         # write labels data if passed
@@ -315,8 +317,7 @@ class NgffMultiscales:
                 delayed += ms_labels.to_ome_zarr(
                     group=label_group,
                     storage_options=storage_options,
-                    fmt=fmt,
-                    axes=[dict(ax) for ax in label_pyramid.metadata.axes],
+                    version=version,
                     compute=compute,
                 )
 
