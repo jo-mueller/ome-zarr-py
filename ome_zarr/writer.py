@@ -669,7 +669,11 @@ def write_image(
         method = Methods.RESIZE
 
     ngff_image = NgffImage(
-        data=image, scale=scale, axes=dims, name=name, axes_units=axes_units
+        data=image,
+        scale=scale,
+        axes=dims,
+        name=name,
+        axes_units=axes_units
     )
     ngff_multiscales = NgffMultiscales(
         image=ngff_image,
@@ -1135,6 +1139,8 @@ def write_labels(
         data=labels,
         axes=dims,
         name=name,
+        scale=scale,
+        axes_units=axes_units
     )
     ngff_multiscales = NgffMultiscales(
         image=ngff_image,
