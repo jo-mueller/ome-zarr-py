@@ -302,7 +302,7 @@ class NgffMultiscales:
             group=group,
             storage_options=storage_options,
             fmt=fmt,
-            scale=self.images[0].scale,
+            scale=cast(dict[str, float], self.images[0].scale),
             axes=[dict(ax) for ax in self.metadata.axes],
             compute=compute,
             name=self.name,
