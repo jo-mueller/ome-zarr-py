@@ -12,9 +12,4 @@ USE_DASK_ARRAY_KWARGS = Version(dask_version) >= Version("2026.3.0")
 
 from .classes import NgffImage, NgffMultiscales
 
-
-__all__ = [
-    "__version__",
-    "NgffImage",
-    "NgffMultiscales"
-    ]
+__all__ = ["NgffImage", "NgffMultiscales", "__version__"]
