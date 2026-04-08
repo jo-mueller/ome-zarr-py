@@ -1125,7 +1125,6 @@ def write_labels(
     storage_options: JSONDict | list[JSONDict] | None = None,
     label_metadata: JSONDict | None = None,
     compute: bool = True,
-    **metadata: JSONDict,
 ) -> list:
     """
     Write image label data to disk, including multiscale and image-label metadata.
@@ -1191,8 +1190,6 @@ def write_labels(
         Image label metadata. See :meth:`write_label_metadata` for details.
     compute : bool, optional
         If True, compute immediately; otherwise, return a list of dask.delayed.Delayed objects.
-    `**metadata` : dict
-        Additional metadata to store.
 
     Returns
     -------
@@ -1231,6 +1228,15 @@ def write_labels(
             {d: 2 ** i if d in ("y", "x") else 1 for d in dims}
             for i in range(1, scaler.max_layer + 1)
         ]
+        warnings.warn(msg, DeprecationWarning)
+
+    if coordinate_transformations is not None:
+        msg = """
+            The 'coordinate_transformations' argument is deprecated and will be removed or repurposed in a future version.
+            Please use the `scale` argument to specify the physical pixel size for each dimension instead.
+            The pixel sizes for every resolution level are calculated directly from the defined `scale` and
+            `scale_factors` for each level.
+            """
         warnings.warn(msg, DeprecationWarning)
 
     if method is None:
