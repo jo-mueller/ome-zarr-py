@@ -549,6 +549,7 @@ def write_image(
         8,
         16,
     ),
+    name: str | None = "image",
     axes_units: dict[str, str] | None = None,
     method: Methods | None = Methods.RESIZE,
     scaler: Scaler | None = None,
@@ -580,6 +581,8 @@ def write_image(
         `[{"z": 2, "y": 2, "x": 2}, {"z": 4, "y": 4, "x": 4}, {"z": 8, "y": 8, "x": 8}]`.
         If dimensions are omitted in this dictionary,
         the downsampling factor for that dimension will default to 1.
+    name: str, optional
+        The name of the image, to be included in the metadata. Defaults to "image".
     axes_units : dict of str to str, optional
         The physical units for each dimension,
         e.g. {"t": "millisecond", "z": "micrometer", "y": "micrometer", "x": "micrometer"}.
@@ -635,7 +638,7 @@ def write_image(
     The `scaler` argument is deprecated and will be removed in a future version. Use
     `scale_factors` and `method` for all new code.
     """
-    from .image import NgffImage, NgffMultiscales
+    from .classes import NgffImage, NgffMultiscales
 
     if method is None:
         method = Methods.RESIZE
@@ -1203,7 +1206,7 @@ def write_labels(
     `scale_factors` and `method` for all new code. Labels downsampling should avoid interpolation;
     nearest-neighbor is recommended.
     """
-    from .image import NgffImage, NgffMultiscales
+    from .classes import NgffImage, NgffMultiscales
 
     group, fmt = check_group_fmt(group, fmt)
     sub_group = group.require_group(f"labels/{name}")
