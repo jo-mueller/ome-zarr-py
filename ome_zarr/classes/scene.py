@@ -11,7 +11,7 @@ from ome_zarr_models._v06.coordinate_transforms import (
 )
 from zarr.storage import StoreLike
 
-from .image import NgffMultiscales
+from ome_zarr.classes import NgffMultiscales
 
 
 @dataclass
@@ -81,7 +81,7 @@ class NgffScene:
                 transform=tf,
             )
 
-    def to_ome_zarr(self, store: StoreLike, incremental: bool = False):
+    def to_ome_zarr(self, store: StoreLike, incremental: bool = False, compute: bool = True):
         """
         Write scene to OME-Zarr format.
 
@@ -105,6 +105,7 @@ class NgffScene:
         # Open or create zarr group
         mode = "a" if incremental else "w"
         zarr_group = zarr.open(store, mode=mode)
+        delayed_objects = []
 
         # Create a subgroup for each image using its name
         for img in self.images:
@@ -116,7 +117,7 @@ class NgffScene:
 
             # Write the image
             subgroup = zarr_group.create_group(img_name, overwrite=not incremental)
-            img.to_ome_zarr(subgroup)
+            delayed_objects.append(img.to_ome_zarr(subgroup, compute=compute))
             self._written_image_names.add(img_name)
 
         # Always update scene metadata
@@ -133,6 +134,7 @@ class NgffScene:
         metadata_dict = _recursive_pop_nones(metadata_dict)
 
         zarr_group.attrs["ome"] = {"scene": metadata_dict, "version": "0.6"}
+        return delayed_objects
 
     @classmethod
     def from_ome_zarr(cls, store: StoreLike):

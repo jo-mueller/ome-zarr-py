@@ -1,34 +1,25 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
-from dataclasses import InitVar, dataclass
+from dataclasses import InitVar, dataclass, field
 from typing import Any, cast
 
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.common.omero import Omero
-from ome_zarr_models.v05.axes import (
+from ome_zarr_models._v06.coordinate_transforms import (
     Axis,
+    CoordinateSystem,
+    CoordinateSystemIdentifier,
+    Scale,
+    Transform,
 )
-from ome_zarr_models.v05.coordinate_transformations import (
-    Identity as Identity,
-)
-from ome_zarr_models.v05.coordinate_transformations import (
-    VectorScale as Scale,
-)
-from ome_zarr_models.v05.coordinate_transformations import (
-    VectorTranslation as Translation,
-)
-from ome_zarr_models.v05.image_label_types import Label
-from ome_zarr_models.v05.multiscales import (
+from ome_zarr_models._v06.multiscales import (
     Dataset,
     Multiscale,
 )
-from pydantic import ValidationError
 
-from ome_zarr.scale import Methods
+from ..scale import Methods
 
 SPATIAL_DIMS = ["z", "y", "x"]
 
@@ -42,15 +33,14 @@ class NgffImage:
     ----------
     data : dask.array.Array or numpy.ndarray
         The image data array.
-    axes : sequence of str or str
-        The axis names corresponding to the data array axes, i.e. ('c', 'z', 'y', 'x').
+    dims : sequence of str or str
+        The dimension names corresponding to the data array axes, i.e. ('c', 'z', 'y', 'x').
     scale : sequence of float or dict of str to float, optional
-        The physical scale for each axis. If a sequence is provided, it should
-        match the order of `axes`. If a dict is provided, keys should be axis names,
+        The physical scale for each dimension. If a sequence is provided, it should
+        match the order of `dims`. If a dict is provided, keys should be dimension names,
         e.g. {'x': 0.1, 'y': 0.1, 'z': 0.5}. Default is None, which sets all scales to 1.0.
     axes_units : dict of str to str, optional
-        Units for each axis, e.g. {'x': 'micrometer', 'y': 'micrometer'}.
-        Default is None (no units).
+        Units for each dimension, e.g. {'x': 'micrometer', 'y': 'micrometer'}. Default is empty dict.
     name : str, optional
         Name of the image. Default is "image".
 
@@ -58,45 +48,49 @@ class NgffImage:
     ----------
     data : dask.array.Array
         The image data array.
-    axes : sequence of str
-        The axis names.
+    dims : sequence of str
+        The dimension names.
     scale : dict of str to float
-        The physical scale for each axis.
+        The physical scale for each dimension.
     axes_units : dict of str to str
-        Units for each axis, e.g. {'x': 'micrometer', 'y': 'micrometer'}.
-        Default is None (no units).
+        Units for each dimension.
     name : str
         Name of the image.
+
+    Methods
+    -------
+    to_multiscales(scale_factors=None, method=Methods.RESIZE) -> NgffMultiscales
+        Build a multiscale pyramid from this image.
     """
 
     data: da.Array | np.ndarray
-    axes: Sequence[str] | str
+    dims: Sequence[str] | str
     scale: Sequence[float] | dict[str, float] | None = None
-    axes_units: dict[str, str] | None = None
+    axes_units: dict[str, str] | None = field(default_factory=dict)
     name: str | None = "image"
 
     def __post_init__(self):
         # set default scale if unset
         if not self.scale:
-            self.scale = tuple(1.0 for _ in range(len(self.axes)))
+            self.scale = tuple(1.0 for _ in range(len(self.dims)))
 
-        # coerce axes to list
-        if isinstance(self.axes, str):
-            self.axes = list(self.axes)
+        # coerce dims to list
+        if isinstance(self.dims, str):
+            self.dims = list(self.dims)
 
         # coerce scale to dict if it's a sequence
         if isinstance(self.scale, Sequence):
-            self.scale = dict(zip(self.axes, self.scale))
+            self.scale = dict(zip(self.dims, self.scale))
 
         # coerce data to dask array
         if not isinstance(self.data, da.Array):
             self.data = da.from_array(self.data)
 
         # validate dimensions match data shape
-        if len(self.axes) != len(self.data.shape):
+        if len(self.dims) != len(self.data.shape):
             raise ValueError(
                 f"Number of dimensions in data ({len(self.data.shape)}) "
-                f"does not match number of dims ({len(self.axes)})"
+                f"does not match number of dims ({len(self.dims)})"
             )
 
 
@@ -110,32 +104,11 @@ class NgffMultiscales:
     image : NgffImage
         The base (highest resolution) image.
     scale_factors : list of int, optional
-        Downsampling factors for each pyramid level.
-        If passed as a list of integers (i.e. [2, 4, 8]),
-        the same factors will be applied to all *spatial* dimensions
-        except for the z-axis (if present).
-        To customize this behavior, pass a list of dicts mapping dimension names to factors, e.g.
-        `[{'x': 2, 'y': 2}, {'x': 4, 'y': 4}, {'x': 8, 'y': 8}]`
-        Default: [2, 4, 8, 16].
+        Downsampling factors for each pyramid level. Default: [2, 4, 8, 16].
     method : str or Methods, optional
         Downsampling method to use. Default: Methods.RESIZE.
-    labels : :class:`NgffMultiscales` or dict of str to :class:`NgffMultiscales`, optional
-        Optional labels to associate with the image pyramid.
-        Can be a single :class:`NgffMultiscales` instance (for a single label pyramid)
-        or a dict mapping label names to :class:`NgffMultiscales` instances
-        (for multiple label pyramids), e.g.
-        `{'nuclei': nuclei_multiscale, 'cells': cells_multiscale}`.
-        Default is None (no labels).
-    omero : dict or Omero, optional
-        Optional Omero metadata to include in the OME-Zarr attributes.
-        Can be passed as a dict or an instance of the [Omero model](https://ome-zarr-models-py.readthedocs.io/en/stable/api/v04/image/#omero-metadata)
-        Default is None (no Omero metadata).
-        For example metadata, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#omero-metadata-transitional)
-    image_label : dict or Label, optional
-        Optional image-label metadata to describe rendering options specifically for label images.
-        Can signal to viewers that this image should be rendered as labels.
-        Can be passed as a dict or an instance of the [Label model](https://ome-zarr-models-py.readthedocs.io/en/stable/api/v05/image-label/)
-        For example metadata, see [ngff specification](https://ngff.openmicroscopy.org/specifications/0.5/index.html#labels-metadata)
+    coordinate_system_name : str, optional
+        Name of the coordinate system. Default: "physical".
 
     Attributes
     ----------
@@ -143,47 +116,47 @@ class NgffMultiscales:
         List of images at each pyramid level.
     metadata : Multiscale
         OME-Zarr multiscale metadata.
-    omero : Omero or None
-        Optional Omero metadata included in the OME-Zarr attributes.
-    image_label : Label or None
-        Optional image-label metadata included in the OME-Zarr attributes.
+
+    Methods
+    -------
+    from_image(image, scale_factors=None, method=Methods.RESIZE) -> NgffMultiscales
+        Build a multiscale pyramid from a base image.
+    to_ome_zarr(group, storage_options=None, version="0.6", compute=True)
+        Serialize the multiscale pyramid to an OME-Zarr group.
+    from_ome_zarr(group) -> NgffMultiscales
+        Load a multiscale pyramid from an OME-Zarr group.
+
     """
 
     image: InitVar[NgffImage]
-    scale_factors: InitVar[
-        list[int] | tuple[int, ...] | list[dict[str, int]] | None
-    ] = None
+    scale_factors: InitVar[list[int] | list[dict[str, int]]] = [2, 4, 8, 16]
     method: str | Methods = Methods.RESIZE
-    coordinateTransformations: InitVar[list[Scale | Translation | Identity] | None] = (
-        None
-    )
-    labels: (
-        NgffMultiscales | list[NgffMultiscales] | dict[str, NgffMultiscales] | None
-    ) = None
-    omero: dict[str, Any] | Omero | None = None
-    image_label: dict[str, Any] | Label | None = None
+    coordinate_system_name: InitVar[str | None] = "physical"
+    coordinateTransformations: InitVar[list[Transform]] = []
 
     def __post_init__(
         self,
         image: NgffImage,
-        scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None,
-        coordinateTransformations: list[Scale | Translation | Identity] | None,
+        scale_factors: list[int] | list[dict[str, int]],
+        coordinate_system_name: str | None = "physical",
+        coordinateTransformations: list[Transform] = [],
     ):
-        from ome_zarr.scale import _build_pyramid
-
         if scale_factors is None:
-            scale_factors = (2, 4, 8, 16)
+            scale_factors = [2, 4, 8, 16]
+        from ..scale import _build_pyramid
 
         self.name = image.name
         method = self.method
-
         if isinstance(method, Methods):
             method = str(method.value)
+
+        if not coordinate_system_name:
+            coordinate_system_name = "physical"
 
         # Build the pyramid data
         pyramid = _build_pyramid(
             image=image.data,
-            dims=image.axes,
+            dims=image.dims,
             scale_factors=scale_factors,
             method=method,
         )
@@ -199,7 +172,7 @@ class NgffMultiscales:
             scales.append(
                 {
                     d: s * image_scale[d] if d in image_scale else 1.0
-                    for d, s in zip(image.axes, scale)
+                    for d, s in zip(image.dims, scale)
                 }
             )
 
@@ -211,7 +184,7 @@ class NgffMultiscales:
             images.append(
                 NgffImage(
                     data=level_data,
-                    axes=image.axes,
+                    dims=image.dims,
                     scale=level_scale,
                     axes_units=image.axes_units,
                     name=image.name,
@@ -219,11 +192,13 @@ class NgffMultiscales:
             )
             datasets.append(
                 Dataset(
-                    path=f"s{idx}",
+                    path=f"scale{idx}",
                     coordinateTransformations=(
                         Scale(
-                            type="scale",
-                            scale=list(level_scale.values()),
+                            input=f"scale{idx}",
+                            output="physical",
+                            scale=tuple(level_scale.values()),
+                            path=None,
                         ),
                     ),
                 )
@@ -236,7 +211,7 @@ class NgffMultiscales:
             image.axes_units = {}
 
         axes = []
-        for d in image.axes:
+        for d in image.dims:
             if d in SPATIAL_DIMS:
                 axes.append(Axis(name=d, type="space", unit=image.axes_units.get(d)))
             elif d == "t":
@@ -246,49 +221,40 @@ class NgffMultiscales:
             else:
                 axes.append(Axis(name=d, type="custom", unit=image.axes_units.get(d)))
 
+        # check if any additional coordinate transforms have been passed and if so
+        # add them to metadata and create a new output coordinate system
+        coordinate_systems = []
+        if coordinateTransformations:
+            for tf in coordinateTransformations:
+                if type(tf) is CoordinateSystemIdentifier:
+                    name = tf.name
+                else:
+                    name = tf.output
+                coordinate_systems.append(
+                    CoordinateSystem(
+                        name=name,
+                        axes=tuple(
+                            Axis(name=d.name, type=d.type, unit=d.unit) for d in axes
+                        ),
+                    )
+                )
+
         self.metadata = Multiscale(
-            axes=tuple(axes),
+            coordinateSystems=(
+                CoordinateSystem(name=coordinate_system_name, axes=tuple(axes)),
+                *coordinate_systems,
+            ),
             datasets=tuple(datasets),
             name=image.name,
-            coordinateTransformations=coordinateTransformations,
+            coordinateTransformations=tuple(coordinateTransformations),
         )
-
-        # coerce labels to dict if it's a single NgffMultiscales or a list
-        if self.labels is not None:
-            if isinstance(self.labels, NgffMultiscales):
-                self.labels = {str(self.labels.name): self.labels}
-            elif isinstance(self.labels, list):
-                self.labels = {str(label.name): label for label in self.labels}
-
-        # parse omero metadata, if passed;
-        # We don't want to fail the entire initialization if the omero metadata is invalid, so we
-        # escape possible validation errors and just warn the user that the omero metadata is invalid
-        try:
-            if self.omero is None:
-                return
-            if isinstance(self.omero, Omero):
-                return
-
-            self.omero = Omero.model_validate(self.omero)
-        except ValidationError as e:
-            warnings.warn(f"Invalid Omero metadata: {e}")
-
-        # parse image label metadata, if passed
-        try:
-            if self.image_label is None:
-                return
-            if isinstance(self.image_label, Label):
-                return
-
-            self.image_label = Label.model_validate(self.image_label)
-        except ValidationError as e:
-            warnings.warn(f"Invalid image-label metadata: {e}")
 
     def to_ome_zarr(
         self,
         group: zarr.Group | str,
-        storage_options: list[dict[str, Any]] | dict[str, Any] | None = None,
-        version: str | None = "0.5",
+        labels: NgffMultiscales | dict[str, NgffMultiscales] | None = None,
+        storage_options: dict[str, Any] | None = None,
+        version: str | None = "0.6",
         compute: bool = True,
     ) -> list:
         """
@@ -298,15 +264,16 @@ class NgffMultiscales:
         ----------
         group : zarr.Group or str
             The target Zarr group or path where the OME-Zarr data will be written.
-        storage_options : dict or list of dict, optional
+        labels : NgffMultiscales or dict of str to NgffMultiscales, optional
+            Optional labels to write alongside the image data. Can be a single NgffMultiscales
+            instance (for a single label pyramid) or a dict mapping label names to NgffMultiscales
+            instances (for multiple label pyramids). Default is None (no labels).
+        storage_options : dict, optional
             Additional storage options to pass to Zarr, such as:
             - `compressor`: A Zarr compressor instance for compressing the data.
             - `chunks`: A tuple specifying the chunk shape for writing data.
-            To specify separately for each resolution level,
-            pass a list of dicts with storage options for each level, e.g.
-            `[{'compressor': Blosc(), 'chunks': (64, 64, 64)}, {'compressor': Blosc(), 'chunks': (128, 128, 128)}, ...]`
         fmt : Format, optional
-            The OME-Zarr format version to use. Defaults to the current format (0.5).
+            The OME-Zarr format version to use. Defaults to the current format.
         compute : bool, optional
             If True, compute immediately; otherwise return delayed objects.
 
@@ -314,23 +281,25 @@ class NgffMultiscales:
         -------
         list
             If `compute` is False, returns a list of Dask delayed objects
-            representing the write operations.
+            representing the write operations. 
         """
         import os
         import shutil
 
-        from ome_zarr.format import Format, FormatV04, FormatV05
-        from ome_zarr.utils import _recursive_pop_nones
-        from ome_zarr.writer import _write_pyramid_to_zarr, check_group_fmt
+        from ..writer import _write_pyramid_to_zarr, check_group_fmt
 
         if os.path.exists(str(group)):
             shutil.rmtree(str(group))
+
+        from ..format import Format, FormatV04, FormatV05
 
         fmt: Format | None = None
         if version == "0.5":
             fmt = FormatV05()
         elif version == "0.4":
             fmt = FormatV04()
+        elif version == "0.6":
+            fmt = FormatV05()
         else:
             raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
@@ -348,75 +317,72 @@ class NgffMultiscales:
             group=group,
             storage_options=storage_options,
             fmt=fmt,
-            scale=cast(dict[str, float], self.images[0].scale),
-            axes=[dict(ax) for ax in self.metadata.axes],
+            axes=[dict(ax) for ax in self.metadata.coordinateSystems[0].axes],
             compute=compute,
-            name=self.name,
         )
 
         # write labels data if passed
-        if self.labels is not None:
-            labels_dict = cast(dict[str, NgffMultiscales], self.labels)
-            for label_name, ms_labels in labels_dict.items():
+        if labels is not None:
+            if isinstance(labels, NgffMultiscales):
+                labels = {str(labels.name): labels}
+
+            for label_name, label_pyramid in labels.items():
                 label_group = group.require_group(f"labels/{label_name}")
 
-                delayed += ms_labels.to_ome_zarr(
+                delayed += _write_pyramid_to_zarr(
+                    pyramid=[
+                        (
+                            img.data
+                            if isinstance(img.data, da.Array)
+                            else da.from_array(img.data)
+                        )
+                        for img in label_pyramid.images
+                    ],
                     group=label_group,
                     storage_options=storage_options,
-                    version=version,
+                    fmt=fmt,
+                    axes=[dict(ax) for ax in label_pyramid.metadata.axes],
                     compute=compute,
                 )
 
         list_of_labels = (
-            [str(label.name) for label in labels_dict.values()] if self.labels else []
+            [str(label.name) for label in labels.values()] if labels else []
         )
 
-        # write the metadata to disk
         if isinstance(group, str):
             group = zarr.open(group, mode="r+")
 
-        # Create a copy of metadata with normalized paths (s0, s1, etc.)
-        # to match the paths used by _write_pyramid_to_zarr
-        write_datasets = tuple(
-            ds.model_copy(update={"path": f"s{idx}"})
-            for idx, ds in enumerate(self.metadata.datasets)
-        )
-        write_metadata = self.metadata.model_copy(update={"datasets": write_datasets})
-
         if version == "0.4":
             # in v0.4, metadata is stored under "multiscales" attribute
-            metadata_dict = write_metadata.to_version("0.4").model_dump()
-            metadata_dict = _recursive_pop_nones(metadata_dict)
-
-            if self.omero and isinstance(self.omero, Omero):
-                metadata_dict["omero"] = self.omero.model_dump()
-            if self.image_label and isinstance(self.image_label, Label):
-                metadata_dict["image-label"] = self.image_label.model_dump()
-            metadata_dict["version"] = version
-            group.attrs["multiscales"] = [metadata_dict]
+            metadata_dict = self.metadata.to_version("0.4").model_dump()
+            metadata_json = _recursive_pop_nones(metadata_dict)
 
             if list_of_labels:
-                group_labels = group["labels"]
-                group_labels.attrs["labels"] = list_of_labels
+                metadata_json["labels"] = list_of_labels
+
+            group.attrs["multiscales"] = [metadata_json]
 
         elif version == "0.5":
             metadata_dict = {
                 "version": version,
-                "multiscales": [_recursive_pop_nones(write_metadata.model_dump())],
+                "multiscales": [self.metadata.model_dump()],
+                "labels": list_of_labels or None,
             }
-            if self.omero and isinstance(self.omero, Omero):
-                metadata_dict["omero"] = self.omero.model_dump()
-            if self.image_label and isinstance(self.image_label, Label):
-                metadata_dict["image-label"] = self.image_label.model_dump()
+            metadata_dict = _recursive_pop_nones(metadata_dict)
             group.attrs["ome"] = metadata_dict
 
-            if list_of_labels:
-                group_labels = group["labels"]
-                group_labels.attrs["ome"] = {
-                    "version": version,
-                    "labels": list_of_labels,
-                }
-
+        elif version == "0.6":
+            metadata_dict = {
+                "version": version,
+                "multiscales": [
+                    self.metadata.model_dump()
+                ],
+                "labels": list_of_labels if list_of_labels else None,
+            }
+            group.attrs["ome"] = _recursive_pop_nones(metadata_dict)
+        else:
+            raise ValueError(f"Unsupported OME-Zarr version: {version}")
+        
         return delayed
 
     @classmethod
@@ -434,108 +400,45 @@ class NgffMultiscales:
 
         Returns
         -------
-        NgffMultiscales`
-            A :class:`NgffMultiscales` container with the loaded images and metadata.
+        NgffMultiscales
+            A NgffMultiscales container with the loaded images and metadata.
         """
-        from ome_zarr.utils import _get_version
 
         if isinstance(group, str):
             group = zarr.open(group, mode="r")
 
-        version = _get_version(group)
+        def _finditem(obj: dict, key: str):
+            if key in obj:
+                return obj[key]
+            for v in obj.values():
+                if isinstance(v, dict):
+                    item = _finditem(v, key)
+                    if item is not None:
+                        return item
 
-        list_of_labels = []
-        omero_dict = None
-        image_label_dict = None
+        version = _finditem(group.attrs, "version")
+        if version is None:
+            raise ValueError("Could not find 'version' in group attributes")
 
-        # This is purely for backwards compatibility
-        # need to handle loading older metadata explicitly here
-        if version in ("0.1", "0.2", "0.3"):
-            from ome_zarr_models.v05.axes import Axis as AxisV05
-            from ome_zarr_models.v05.coordinate_transformations import (
-                VectorScale,
-                VectorTranslation,
-            )
-            from ome_zarr_models.v05.multiscales import Multiscale as Multiscalev05
-
-            metadata_json = cast(
-                dict[str, Any], group.attrs.get("multiscales", [None])[0]
-            )
-
-            axes = (
-                AxisV05(name="t", type="time"),
-                AxisV05(name="c", type="channel"),
-                AxisV05(name="z", type="space"),
-                AxisV05(name="y", type="space"),
-                AxisV05(name="x", type="space"),
-            )
-
-            scale = {s.name: 1.0 for s in axes}
-
-            datasets = []
-            for idx, ds in enumerate(metadata_json.get("datasets", [])):
-                scale_level = [
-                    2.0 ** idx if s.name in ("z", "y", "x") else 1.0 for s in axes
-                ]
-
-                if idx == 0:
-                    transforms: tuple[VectorScale | VectorTranslation, ...] = (
-                        VectorScale(type="scale", scale=scale_level),
-                    )
-                else:
-                    translate = [
-                        2.0 ** (idx - 1) - 0.5 if s.name in ("z", "y", "x") else 0.0
-                        for s in axes
-                    ]
-                    transforms = (
-                        VectorScale(type="scale", scale=scale_level),
-                        VectorTranslation(type="translation", translation=translate),
-                    )
-
-                datasets.append(
-                    Dataset(
-                        path=ds.get("path", f"s{idx}"),
-                        coordinateTransformations=transforms,
-                    )
-                )
-
-            metadata = Multiscalev05(
-                axes=axes,
-                datasets=tuple(datasets),
-                type=metadata_json.get("type", None),
-                metadata=metadata_json.get("metadata", None),
-                coordinateTransformations=None,
-                name=metadata_json.get("name", "image"),
-            )
-
-        elif version == "0.4":
+        if version == "0.4":
             from ome_zarr_models.v04.multiscales import Multiscale as Multiscalev04
 
-            metadata_json = cast(dict, group.attrs.get("multiscales", [None])[0])
-            metadata = Multiscalev04.model_validate(metadata_json).to_version("0.5")
+            metadata_json = group.attrs.get("multiscales", [None])[0]
 
-            if "labels" in group:
-                labels_json = group["labels"].attrs.get("labels", [])
-                list_of_labels = labels_json if isinstance(labels_json, list) else []
-            if "omero" in metadata_json:
-                omero_dict = metadata_json.get("omero", None)
-            if "image-label" in metadata_json:
-                image_label_dict = metadata_json.get("image-label", None)
+            metadata = Multiscalev04.model_validate(metadata_json).to_version("0.6")
         elif version == "0.5":
             from ome_zarr_models.v05.multiscales import Multiscale as Multiscalev05
 
-            ome_attrs = cast(dict, group.attrs.get("ome", {}))
+            ome_attrs = group.attrs.get("ome", {})
             metadata_json = ome_attrs.get("multiscales", [None])[0]
-            metadata = Multiscalev05.model_validate(metadata_json)
+            metadata = Multiscalev05.model_validate(metadata_json).to_version("0.6")
+        elif version == "0.6":
+            from ome_zarr_models._v06.multiscales import Multiscale
 
-            if "labels" in group:
-                labels_ome_attrs = group["labels"].attrs.get("ome", {})
-                list_of_labels = labels_ome_attrs.get("labels", [])
-
-            if "omero" in ome_attrs:
-                omero_dict = ome_attrs.get("omero", None)
-            if "image-label" in ome_attrs:
-                image_label_dict = ome_attrs.get("image-label", None)
+            ome_attrs = group.attrs.get("ome", {})
+            metadata_json = ome_attrs.get("multiscales", [None])[0]
+            metadata_json = _recursive_pop_nones(metadata_json)
+            metadata = Multiscale.model_validate(metadata_json)
         else:
             raise ValueError(f"Unsupported OME-Zarr version: {version}")
 
@@ -546,15 +449,21 @@ class NgffMultiscales:
             scale = dataset.coordinateTransformations[0].scale
             # Filter out axes with no unit, and set to None if empty
             axes_units: dict[str, str] | None = {
-                ax.name: ax.unit for ax in metadata.axes if ax.unit is not None
+                ax.name: ax.unit
+                for ax in metadata.coordinateSystems[0].axes
+                if ax.unit is not None
             }
             if not axes_units:
                 axes_units = None
+
             images.append(
                 NgffImage(
                     data=data,
-                    axes=[ax.name for ax in metadata.axes],
-                    scale={d.name: s for d, s in zip(metadata.axes, scale)},
+                    dims=[ax.name for ax in metadata.coordinateSystems[0].axes],
+                    scale={
+                        d.name: s
+                        for d, s in zip(metadata.coordinateSystems[0].axes, scale)
+                    },
                     axes_units=axes_units,
                     name=metadata.name,
                 )
@@ -563,38 +472,29 @@ class NgffMultiscales:
         instance = cls.__new__(cls)
         instance.images = images
         instance.metadata = metadata
-
-        # Finally, parse omero metadata
-        try:
-            if omero_dict is not None:
-                instance.omero = Omero.model_validate(omero_dict)
-        except ValidationError as e:
-            warnings.warn(f"Invalid Omero metadata: {e}")
-
-        # parse image label metadata
-        try:
-            if image_label_dict is not None:
-                instance.image_label = Label.model_validate(image_label_dict)
-        except ValidationError as e:
-            warnings.warn(f"Invalid image-label metadata: {e}")
-
-        if metadata.name is not None:
-            instance.name = metadata.name
-        else:
-            instance.name = "image"
-
-        if metadata.name is not None:
-            instance.name = metadata.name
-        else:
-            instance.name = "image"
-
-        # add labels if they exist
-        if list_of_labels:
-            labels = {}
-            for label_name in list_of_labels:
-                label_group = group[f"labels/{label_name}"]
-                label_multiscale = cls.from_ome_zarr(label_group)
-                labels[label_name] = label_multiscale
-            instance.labels = labels
-
+        instance.name = metadata.name
         return instance
+
+
+def _recursive_pop_nones(data: dict) -> dict:
+    """Recursively remove None values from a nested dictionary."""
+    output: dict = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            nested = _recursive_pop_nones(value)
+            if nested:
+                output[key] = nested
+        elif isinstance(value, list | tuple):
+            nested_list = []
+            for item in value:
+                if isinstance(item, dict):
+                    nested_item = _recursive_pop_nones(item)
+                    if nested_item:
+                        nested_list.append(nested_item)
+                elif item is not None:
+                    nested_list.append(item)
+            if nested_list:
+                output[key] = nested_list
+        elif value is not None:
+            output[key] = value
+    return output
