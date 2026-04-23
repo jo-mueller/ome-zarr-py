@@ -33,11 +33,11 @@ class NgffImage:
     ----------
     data : dask.array.Array or numpy.ndarray
         The image data array.
-    dims : sequence of str or str
-        The dimension names corresponding to the data array axes, i.e. ('c', 'z', 'y', 'x').
+    axes : sequence of str or str
+        The axis names corresponding to the data array axes, i.e. ('c', 'z', 'y', 'x').
     scale : sequence of float or dict of str to float, optional
-        The physical scale for each dimension. If a sequence is provided, it should
-        match the order of `dims`. If a dict is provided, keys should be dimension names,
+        The physical scale for each axis. If a sequence is provided, it should
+        match the order of `axes`. If a dict is provided, keys should be axis names,
         e.g. {'x': 0.1, 'y': 0.1, 'z': 0.5}. Default is None, which sets all scales to 1.0.
     axes_units : dict of str to str, optional
         Units for each dimension, e.g. {'x': 'micrometer', 'y': 'micrometer'}. Default is empty dict.
@@ -48,12 +48,12 @@ class NgffImage:
     ----------
     data : dask.array.Array
         The image data array.
-    dims : sequence of str
-        The dimension names.
+    axes : sequence of str
+        The axis names.
     scale : dict of str to float
-        The physical scale for each dimension.
+        The physical scale for each axis.
     axes_units : dict of str to str
-        Units for each dimension.
+        Units for each axis, e.g. {'x': 'micrometer', 'y': 'micrometer'}. Default is empty dict.
     name : str
         Name of the image.
 
@@ -64,7 +64,7 @@ class NgffImage:
     """
 
     data: da.Array | np.ndarray
-    dims: Sequence[str] | str
+    axes: Sequence[str] | str
     scale: Sequence[float] | dict[str, float] | None = None
     axes_units: dict[str, str] | None = field(default_factory=dict)
     name: str | None = "image"
@@ -72,25 +72,25 @@ class NgffImage:
     def __post_init__(self):
         # set default scale if unset
         if not self.scale:
-            self.scale = tuple(1.0 for _ in range(len(self.dims)))
+            self.scale = tuple(1.0 for _ in range(len(self.axes)))
 
-        # coerce dims to list
-        if isinstance(self.dims, str):
-            self.dims = list(self.dims)
+        # coerce axes to list
+        if isinstance(self.axes, str):
+            self.axes = list(self.axes)
 
         # coerce scale to dict if it's a sequence
         if isinstance(self.scale, Sequence):
-            self.scale = dict(zip(self.dims, self.scale))
+            self.scale = dict(zip(self.axes, self.scale))
 
         # coerce data to dask array
         if not isinstance(self.data, da.Array):
             self.data = da.from_array(self.data)
 
         # validate dimensions match data shape
-        if len(self.dims) != len(self.data.shape):
+        if len(self.axes) != len(self.data.shape):
             raise ValueError(
                 f"Number of dimensions in data ({len(self.data.shape)}) "
-                f"does not match number of dims ({len(self.dims)})"
+                f"does not match number of dims ({len(self.axes)})"
             )
 
 
@@ -128,6 +128,10 @@ class NgffMultiscales:
 
     """
 
+    # Attributes that are populated in __post_init__ and not passed by the user
+    images: list[NgffImage] = field(init=False)
+
+    # InitVars for parameters passed by the user
     image: InitVar[NgffImage]
     scale_factors: InitVar[list[int] | list[dict[str, int]]] = [2, 4, 8, 16]
     method: str | Methods = Methods.RESIZE
@@ -156,7 +160,7 @@ class NgffMultiscales:
         # Build the pyramid data
         pyramid = _build_pyramid(
             image=image.data,
-            dims=image.dims,
+            dims=image.axes,
             scale_factors=scale_factors,
             method=method,
         )
@@ -172,7 +176,7 @@ class NgffMultiscales:
             scales.append(
                 {
                     d: s * image_scale[d] if d in image_scale else 1.0
-                    for d, s in zip(image.dims, scale)
+                    for d, s in zip(image.axes, scale)
                 }
             )
 
@@ -184,7 +188,7 @@ class NgffMultiscales:
             images.append(
                 NgffImage(
                     data=level_data,
-                    dims=image.dims,
+                    axes=image.axes,
                     scale=level_scale,
                     axes_units=image.axes_units,
                     name=image.name,
@@ -211,7 +215,7 @@ class NgffMultiscales:
             image.axes_units = {}
 
         axes = []
-        for d in image.dims:
+        for d in image.axes:
             if d in SPATIAL_DIMS:
                 axes.append(Axis(name=d, type="space", unit=image.axes_units.get(d)))
             elif d == "t":
@@ -315,6 +319,7 @@ class NgffMultiscales:
         delayed = _write_pyramid_to_zarr(
             pyramid=pyramid,
             group=group,
+            scale=self.images[0].scale,
             storage_options=storage_options,
             fmt=fmt,
             axes=[dict(ax) for ax in self.metadata.coordinateSystems[0].axes],
@@ -338,6 +343,7 @@ class NgffMultiscales:
                         )
                         for img in label_pyramid.images
                     ],
+                    scale=label_pyramid.images[0].scale,
                     group=label_group,
                     storage_options=storage_options,
                     fmt=fmt,
@@ -426,6 +432,13 @@ class NgffMultiscales:
             metadata_json = group.attrs.get("multiscales", [None])[0]
 
             metadata = Multiscalev04.model_validate(metadata_json).to_version("0.6")
+            if "labels" in group:
+                labels_json = group["labels"].attrs.get("labels", [])
+                list_of_labels = labels_json if isinstance(labels_json, list) else []
+            if "omero" in group.attrs:
+                omero_dict = group.attrs.get("omero", None)
+            if "image-label" in group.attrs:
+                image_label_dict = group.attrs.get("image-label", None)
         elif version == "0.5":
             from ome_zarr_models.v05.multiscales import Multiscale as Multiscalev05
 
@@ -459,7 +472,7 @@ class NgffMultiscales:
             images.append(
                 NgffImage(
                     data=data,
-                    dims=[ax.name for ax in metadata.coordinateSystems[0].axes],
+                    axes=[ax.name for ax in metadata.coordinateSystems[0].axes],
                     scale={
                         d.name: s
                         for d, s in zip(metadata.coordinateSystems[0].axes, scale)

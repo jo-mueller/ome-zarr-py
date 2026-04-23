@@ -675,7 +675,7 @@ def write_image(
         warnings.warn(msg, DeprecationWarning)
 
         scale_factors = [
-            {d: 2**i if d in SPATIAL_DIMS else 1 for d in dims}
+            {d: 2 ** i if d in ("y", "x") else 1 for d in dims}
             for i in range(1, scaler.max_layer + 1)
         ]
         if scaler.method == "local_mean":
@@ -1137,12 +1137,12 @@ def write_labels(
         dimensions ordered (t, c, z, y, x).
     group : zarr.Group
         The group within the zarr store to write the metadata in.
+    name : str
+        The name of this labels data.
     scale: dict of str to float, optional
         The physical pixel size for each dimension, e.g. {"z": 0.1, "y": 0.1, "x": 0.5}.
         THe pixel sizes for every resolution level are calculated directly from the defined `scale` and
         `scale_factors` for each level.
-    name : str
-        The name of this labels data.
     scaler : ome_zarr.scale.Scaler, optional
         [DEPRECATED] Scaler implementation for downsampling the label data. Passing this
         argument will raise a warning and is no longer supported. Use `scale_factors` and
@@ -1224,7 +1224,7 @@ def write_labels(
         Please use the 'scale_factors' argument instead.
         """
         scale_factors = [
-            {d: 2**i if d in SPATIAL_DIMS else 1 for d in dims}
+            {d: 2 ** i if d in ("y", "x") else 1 for d in dims}
             for i in range(1, scaler.max_layer + 1)
         ]
         warnings.warn(msg, DeprecationWarning)
