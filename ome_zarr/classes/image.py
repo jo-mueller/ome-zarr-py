@@ -9,6 +9,7 @@ import dask.array as da
 import numpy as np
 import zarr
 from ome_zarr_models.common.omero import Omero
+from ome_zarr_models.common.image_label_types import LabelBase as Label
 from ome_zarr_models.v05.axes import (
     Axis,
 )
@@ -21,7 +22,6 @@ from ome_zarr_models.v05.coordinate_transformations import (
 from ome_zarr_models.v05.coordinate_transformations import (
     VectorTranslation as Translation,
 )
-from ome_zarr_models.v05.image_label_types import Label
 from ome_zarr_models.v05.multiscales import (
     Dataset,
     Multiscale,
@@ -511,6 +511,14 @@ class NgffMultiscales:
                 coordinateTransformations=None,
                 name=metadata_json.get("name", "image"),
             )
+
+            if "labels" in group:
+                labels_json = group["labels"].attrs.get("labels", [])
+                list_of_labels = labels_json if isinstance(labels_json, list) else []
+            if "omero" in group.attrs:
+                omero_dict = group.attrs.get("omero", None)
+            if "image-label" in group.attrs:
+                image_label_dict = group.attrs.get("image-label", None)
 
         elif version == "0.4":
             from ome_zarr_models.v04.multiscales import Multiscale as Multiscalev04
