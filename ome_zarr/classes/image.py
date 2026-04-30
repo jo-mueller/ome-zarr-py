@@ -286,7 +286,9 @@ class NgffMultiscales:
 
             self.image_label = Label.model_validate(self.image_label)
         except ValidationError as e:
-            warnings.warn(f"Invalid image-label metadata: {e}")
+            warnings.warn(
+                f"Validation of image-label metadata {self.image_label} "
+                f"failed with Error {e}")
 
     def to_ome_zarr(
         self,
