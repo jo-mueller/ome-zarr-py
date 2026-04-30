@@ -8,8 +8,8 @@ from typing import Any, cast
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.common.omero import Omero
 from ome_zarr_models.common.image_label_types import LabelBase as Label
+from ome_zarr_models.common.omero import Omero
 from ome_zarr_models.v05.axes import (
     Axis,
 )
@@ -288,7 +288,8 @@ class NgffMultiscales:
         except ValidationError as e:
             warnings.warn(
                 f"Validation of image-label metadata {self.image_label} "
-                f"failed with Error {e}")
+                f"failed with Error {e}"
+            )
 
     def to_ome_zarr(
         self,

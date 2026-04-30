@@ -18,6 +18,54 @@ from ome_zarr.writer import (
 )
 
 
+@pytest.mark.parametrize(
+    ["url", "has_omero", "has_labels"],
+    [
+        (
+            {"0.1": "https://livingobjects.ebi.ac.uk/idr/zarr/v0.1/6001237.zarr"},
+            True,
+            True,
+        ),
+        (
+            {"0.2": "https://livingobjects.ebi.ac.uk/idr/zarr/v0.2/6001240.zarr"},
+            True,
+            True,
+        ),
+        (
+            {
+                "0.3": "https://livingobjects.ebi.ac.uk/idr/zarr/v0.3/idr0052A/5514375.zarr"
+            },
+            True,
+            True,
+        ),
+    ],
+)
+def test_class_reader_legacy(url, has_omero, has_labels):
+    image = NgffMultiscales.from_ome_zarr(list(url.values())[0])
+
+    if has_omero:
+        assert image.omero is not None
+        assert hasattr(image.omero, "channels")
+
+    if has_labels:
+        assert image.labels != []
+        assert image.labels is not None
+        # image.labels must be one of:
+        # - NGffMultiscales
+        # - list[NgffMultiscales]
+        # - dict(str, Multiscales)
+        if isinstance(image.labels, dict):
+            for label in image.labels.values():
+                assert isinstance(label, NgffMultiscales)
+
+        elif isinstance(image.labels, list):
+            for label in image.labels:
+                assert isinstance(label, NgffMultiscales)
+
+        else:
+            assert isinstance(image.labels, NgffMultiscales)
+
+
 class TestReader:
     @pytest.fixture(autouse=True)
     def initdir(self, tmpdir):
