@@ -41,7 +41,7 @@ from ome_zarr.writer import (
     ],
 )
 def test_class_reader_legacy(url, has_omero, has_labels):
-    image = NgffMultiscales.from_ome_zarr(list(url.values())[0])
+    image = NgffMultiscales.from_ome_zarr(next(iter(url.values())))
 
     if has_omero:
         assert image.omero is not None
