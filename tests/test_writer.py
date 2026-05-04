@@ -219,12 +219,6 @@ class TestWriter:
             omero=omero
         )
 
-        image_multiscales = NgffMultiscales(
-            image=image,
-            scale_factors=scale_factors,
-            labels=labels_multiscales,
-        )
-
         # write image and labels to disk
         image_multiscales.to_ome_zarr(
             group=str(grp_path),
@@ -317,8 +311,10 @@ class TestWriter:
             Models05Image.from_zarr(out)
 
         # verify omero and image-labels metadata
-        assert image.omero is not None
-        assert image.labels[0].values[0].image_label is not None
+        if omero is not None:
+            assert image.omero is not None
+        if image_labels is not None:
+            assert image.labels["test_labels"].image_label is not None
 
     @pytest.mark.parametrize("storage_options_list", [True, False])
     def test_writer(
