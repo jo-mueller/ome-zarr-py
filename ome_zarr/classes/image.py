@@ -268,23 +268,17 @@ class NgffMultiscales:
         # We don't want to fail the entire initialization if the omero metadata is invalid, so we
         # escape possible validation errors and just warn the user that the omero metadata is invalid
         try:
-            if self.omero is None:
-                return
-            if isinstance(self.omero, Omero):
-                return
-
-            self.omero = Omero.model_validate(self.omero)
+            if isinstance(self.omero, dict):
+                self.omero = Omero.model_validate(self.omero)
+            
         except ValidationError as e:
             warnings.warn(f"Invalid Omero metadata: {e}")
 
         # parse image label metadata, if passed
         try:
-            if self.image_label is None:
-                return
-            if isinstance(self.image_label, Label):
-                return
-
-            self.image_label = Label.model_validate(self.image_label)
+            if isinstance(self.image_label, dict):
+                self.image_label = Label.model_validate(self.image_label)
+            
         except ValidationError as e:
             warnings.warn(
                 f"Validation of image-label metadata {self.image_label} "
