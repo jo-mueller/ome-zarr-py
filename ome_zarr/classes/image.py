@@ -271,7 +271,7 @@ class NgffMultiscales:
         try:
             if isinstance(self.omero, dict):
                 self.omero = Omero.model_validate(self.omero)
-            
+
         except ValidationError as e:
             warnings.warn(f"Invalid Omero metadata: {e}")
 
@@ -279,7 +279,7 @@ class NgffMultiscales:
         try:
             if isinstance(self.image_label, dict):
                 self.image_label = Label.model_validate(self.image_label)
-            
+
         except ValidationError as e:
             warnings.warn(
                 f"Validation of image-label metadata {self.image_label} "

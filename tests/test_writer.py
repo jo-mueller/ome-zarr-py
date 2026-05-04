@@ -174,15 +174,13 @@ class TestWriter:
                     {
                         "label-value": 1,
                         "rgba": [255, 255, 255, 255],
-                    }
+                    },
                 ],
             }
 
         labels_multiscales = NgffMultiscales(
-            image=labels,
-            scale_factors=scale_factors,
-            image_label=image_labels
-            )
+            image=labels, scale_factors=scale_factors, image_label=image_labels
+        )
 
         omero = None
         if "c" in axes:
@@ -196,7 +194,7 @@ class TestWriter:
                             "end": 230,
                             "min": 0,
                             "max": 255,
-                        }
+                        },
                     },
                     {
                         "label": "Channel 1",
@@ -206,8 +204,8 @@ class TestWriter:
                             "end": 255,
                             "min": 0,
                             "max": 255,
-                        }
-                    }
+                        },
+                    },
                 ],
                 "id": 12345,
             }
@@ -216,7 +214,7 @@ class TestWriter:
             image=image,
             scale_factors=scale_factors,
             labels=labels_multiscales,
-            omero=omero
+            omero=omero,
         )
 
         # write image and labels to disk
