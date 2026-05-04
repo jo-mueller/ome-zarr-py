@@ -391,8 +391,10 @@ class NgffMultiscales:
 
             if self.omero and isinstance(self.omero, Omero):
                 metadata_dict["omero"] = self.omero.model_dump()
+                metadata_dict["omero"]["version"] = version
             if self.image_label and isinstance(self.image_label, Label):
                 metadata_dict["image-label"] = self.image_label.model_dump()
+                metadata_dict["image-label"]["version"] = version
             metadata_dict["version"] = version
             group.attrs["multiscales"] = [metadata_dict]
 
@@ -407,8 +409,10 @@ class NgffMultiscales:
             }
             if self.omero and isinstance(self.omero, Omero):
                 metadata_dict["omero"] = self.omero.model_dump()
+                metadata_dict["omero"]["version"] = version
             if self.image_label and isinstance(self.image_label, Label):
                 metadata_dict["image-label"] = self.image_label.model_dump()
+                metadata_dict["image-label"]["version"] = version
             group.attrs["ome"] = metadata_dict
 
             if list_of_labels:
