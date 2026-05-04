@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ensurepip import version
 import warnings
 from collections.abc import Sequence
 from dataclasses import InitVar, dataclass, field
@@ -291,6 +292,7 @@ class NgffMultiscales:
         storage_options: list[dict[str, Any]] | dict[str, Any] | None = None,
         version: str | None = "0.5",
         compute: bool = True,
+        overwrite: bool = True,
     ) -> list:
         """
         Serialize the multiscale pyramid to an OME-Zarr group.
@@ -306,10 +308,16 @@ class NgffMultiscales:
             To specify separately for each resolution level,
             pass a list of dicts with storage options for each level, e.g.
             `[{'compressor': Blosc(), 'chunks': (64, 64, 64)}, {'compressor': Blosc(), 'chunks': (128, 128, 128)}, ...]`
-        fmt : Format, optional
-            The OME-Zarr format version to use. Defaults to the current format (0.5).
+        version : str, optional
+            The OME-Zarr format version to use. Defaults to "0.5".
         compute : bool, optional
             If True, compute immediately; otherwise return delayed objects.
+        overwrite : bool, optional
+            If True (default), delete and recreate the store from scratch.
+            If False, skip writing data that already exists:
+            - Main image data is only written if the store doesn't exist
+            - Each label is only written if it doesn't already exist
+            This allows progressively adding new labels to an existing image.
 
         Returns
         -------
@@ -324,48 +332,77 @@ class NgffMultiscales:
         from ome_zarr.utils import _recursive_pop_nones
         from ome_zarr.writer import _write_pyramid_to_zarr, check_group_fmt
 
-        if os.path.exists(str(group)):
-            shutil.rmtree(str(group))
+        delayed = []
 
-        fmt: Format | None = None
-        if version == "0.5":
-            fmt = FormatV05()
-        elif version == "0.4":
-            fmt = FormatV04()
+        # Determine if store already exists
+        if isinstance(group, str):
+            store_exists = os.path.exists(group)
         else:
-            raise ValueError(f"Unsupported OME-Zarr version: {version}")
+            store_exists = True  # zarr.Group was passed in, so it exists
 
-        group, fmt = check_group_fmt(group, fmt)
+        # Decide whether to write main image data
+        write_image_data = not store_exists or overwrite
 
-        # Coerce data to dask arrays for writing
-        pyramid = [
-            img.data if isinstance(img.data, da.Array) else da.from_array(img.data)
-            for img in self.images
-        ]
+        if write_image_data:
+            # Delete existing store if overwriting
+            if overwrite and isinstance(group, str) and os.path.exists(group):
+                shutil.rmtree(group)
 
-        # write the actual image to disk
-        delayed = _write_pyramid_to_zarr(
-            pyramid=pyramid,
-            group=group,
-            storage_options=storage_options,
-            fmt=fmt,
-            scale=cast(dict[str, float], self.images[0].scale),
-            axes=[dict(ax) for ax in self.metadata.axes],
-            compute=compute,
-            name=self.name,
-        )
+            fmt: Format | None = None
+            if version == "0.5":
+                fmt = FormatV05()
+            elif version == "0.4":
+                fmt = FormatV04()
+            else:
+                raise ValueError(f"Unsupported OME-Zarr version: {version}")
+
+            group, fmt = check_group_fmt(group, fmt)
+
+            # Coerce data to dask arrays for writing
+            pyramid = [
+                img.data if isinstance(img.data, da.Array) else da.from_array(img.data)
+                for img in self.images
+            ]
+
+            # write the actual image to disk
+            delayed = _write_pyramid_to_zarr(
+                pyramid=pyramid,
+                group=group,
+                storage_options=storage_options,
+                fmt=fmt,
+                scale=cast(dict[str, float], self.images[0].scale),
+                axes=[dict(ax) for ax in self.metadata.axes],
+                compute=compute,
+                name=self.name,
+            )
+        else:
+            # Open existing store for updating labels only
+            if isinstance(group, str):
+                group = zarr.open(group, mode="r+")
 
         # write labels data if passed
         if self.labels is not None:
             labels_dict = cast(dict[str, NgffMultiscales], self.labels)
+            label_group = group.require_group("labels")
             for label_name, ms_labels in labels_dict.items():
-                label_group = group.require_group(f"labels/{label_name}")
 
+                # coerce image name to name in labels dict
+                ms_labels.name = label_name
+
+                if label_name in label_group:
+                    # Skip this label, it already exists
+                    continue
+
+                label_subgroup = label_group.require_group(label_name)
+
+                # Write this label (always overwrite=True here since we've
+                # already decided whether to skip based on the parent's flag)
                 delayed += ms_labels.to_ome_zarr(
-                    group=label_group,
+                    group=label_subgroup,
                     storage_options=storage_options,
                     version=version,
                     compute=compute,
+                    overwrite=True,
                 )
 
         list_of_labels = (
@@ -376,51 +413,73 @@ class NgffMultiscales:
         if isinstance(group, str):
             group = zarr.open(group, mode="r+")
 
-        # Create a copy of metadata with normalized paths (s0, s1, etc.)
-        # to match the paths used by _write_pyramid_to_zarr
-        write_datasets = tuple(
-            ds.model_copy(update={"path": f"s{idx}"})
-            for idx, ds in enumerate(self.metadata.datasets)
-        )
-        write_metadata = self.metadata.model_copy(update={"datasets": write_datasets})
+        # Only write full metadata if we wrote image data, otherwise just update labels
+        if write_image_data:
+            # Create a copy of metadata with normalized paths (s0, s1, etc.)
+            # to match the paths used by _write_pyramid_to_zarr
+            write_datasets = tuple(
+                ds.model_copy(update={"path": f"s{idx}"})
+                for idx, ds in enumerate(self.metadata.datasets)
+            )
+            write_metadata = self.metadata.model_copy(
+                update={"datasets": write_datasets}
+            )
 
-        if version == "0.4":
-            # in v0.4, metadata is stored under "multiscales" attribute
-            metadata_dict = write_metadata.to_version("0.4").model_dump()
-            metadata_dict = _recursive_pop_nones(metadata_dict)
+            if version == "0.4":
+                # in v0.4, metadata is stored under "multiscales" attribute
+                metadata_dict = write_metadata.to_version("0.4").model_dump(by_alias=True)
+                metadata_dict = _recursive_pop_nones(metadata_dict)
+                metadata_dict["version"] = version
+                group.attrs["multiscales"] = [metadata_dict]
+                
+                if self.omero and isinstance(self.omero, Omero):
+                    omero_dict = self.omero.model_dump(by_alias=True)
+                    omero_dict["version"] = version
+                    group.attrs["omero"] = omero_dict
+                if self.image_label and isinstance(self.image_label, Label):
+                    image_label_dict = self.image_label.model_dump(by_alias=True)
+                    image_label_dict["version"] = version
+                    group.attrs["image-label"] = image_label_dict
+                if list_of_labels:
+                    group_labels = group["labels"]
+                    group_labels.attrs["labels"] = list_of_labels
 
-            if self.omero and isinstance(self.omero, Omero):
-                metadata_dict["omero"] = self.omero.model_dump()
-                metadata_dict["omero"]["version"] = version
-            if self.image_label and isinstance(self.image_label, Label):
-                metadata_dict["image-label"] = self.image_label.model_dump()
-                metadata_dict["image-label"]["version"] = version
-            metadata_dict["version"] = version
-            group.attrs["multiscales"] = [metadata_dict]
-
-            if list_of_labels:
-                group_labels = group["labels"]
-                group_labels.attrs["labels"] = list_of_labels
-
-        elif version == "0.5":
-            metadata_dict = {
-                "version": version,
-                "multiscales": [_recursive_pop_nones(write_metadata.model_dump())],
-            }
-            if self.omero and isinstance(self.omero, Omero):
-                metadata_dict["omero"] = self.omero.model_dump()
-                metadata_dict["omero"]["version"] = version
-            if self.image_label and isinstance(self.image_label, Label):
-                metadata_dict["image-label"] = self.image_label.model_dump()
-                metadata_dict["image-label"]["version"] = version
-            group.attrs["ome"] = metadata_dict
-
-            if list_of_labels:
-                group_labels = group["labels"]
-                group_labels.attrs["ome"] = {
+            elif version == "0.5":
+                metadata_dict = {
                     "version": version,
-                    "labels": list_of_labels,
+                    "multiscales": [
+                        _recursive_pop_nones(write_metadata.model_dump(by_alias=True))
+                        ],
                 }
+
+                if self.omero and isinstance(self.omero, Omero):
+                    omero_dict = self.omero.model_dump(by_alias=True)
+                    omero_dict["version"] = version
+                    metadata_dict["omero"] = omero_dict
+                if self.image_label and isinstance(self.image_label, Label):
+                    image_label_dict = self.image_label.model_dump(by_alias=True)
+                    image_label_dict["version"] = version
+                    metadata_dict["image-label"] = image_label_dict
+
+                if list_of_labels:
+                    group_labels = group["labels"]
+                    group_labels.attrs["ome"] = {
+                        "version": version,
+                        "labels": list_of_labels,
+                    }
+                group.attrs["ome"] = metadata_dict
+        else:
+            # Update mode: only update the labels list in metadata
+            if list_of_labels:
+                if version == "0.4":
+                    group_labels = group["labels"]
+                    group_labels.attrs["labels"] = list_of_labels
+                elif version == "0.5":
+                    group_labels = group["labels"]
+                    group_labels.attrs["ome"] = {
+                        "version": version,
+                        "labels": list_of_labels,
+                    }
 
         return delayed
 
