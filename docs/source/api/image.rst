@@ -1,5 +1,5 @@
-Image (``ome_zarr.image``)
+Image (``ome_zarr.classes``)
 ============================
 
-.. automodule:: ome_zarr.image
+.. automodule:: ome_zarr.classes.image
    :members:
