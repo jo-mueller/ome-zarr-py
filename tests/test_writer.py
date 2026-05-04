@@ -140,7 +140,7 @@ class TestWriter:
         if storage_options_list:
             storage_options = [{"chunks": chunk} for chunk in chunks]
         scale_factors = [
-            {d: 2 ** i if d in ("x", "y") else 1.0 for d in axes}
+            {str(d): 2 ** i if d in ("x", "y") else 1.0 for d in axes}
             for i in range(1, len(TRANSFORMATIONS))
         ]
 
@@ -162,12 +162,61 @@ class TestWriter:
             scale=dict(zip(axes, TRANSFORMATIONS[0][0]["scale"])),
             name=labels_name,
         )
-        labels_multiscales = NgffMultiscales(image=labels, scale_factors=scale_factors)
+
+        image_labels = None
+        if "c" in axes:
+            image_labels = {
+                "colors": [
+                    {
+                        "label-value": 0,
+                        "rgba": [0, 0, 0, 255],
+                    },
+                    {
+                        "label-value": 1,
+                        "rgba": [255, 255, 255, 255],
+                    }
+                ],
+            }
+
+        labels_multiscales = NgffMultiscales(
+            image=labels,
+            scale_factors=scale_factors,
+            image_label=image_labels
+            )
+
+        omero = None
+        if "c" in axes:
+            omero = {
+                "channels": [
+                    {
+                        "label": "Channel 0",
+                        "color": "#FF0000",
+                        "window": {
+                            "start": 10,
+                            "end": 230,
+                            "min": 0,
+                            "max": 255,
+                        }
+                    },
+                    {
+                        "label": "Channel 1",
+                        "color": "#00FF00",
+                        "window": {
+                            "start": 10,
+                            "end": 255,
+                            "min": 0,
+                            "max": 255,
+                        }
+                    }
+                ],
+                "id": 12345,
+            }
 
         image_multiscales = NgffMultiscales(
             image=image,
             scale_factors=scale_factors,
             labels=labels_multiscales,
+            omero=omero
         )
 
         image_multiscales = NgffMultiscales(
@@ -266,6 +315,10 @@ class TestWriter:
             Models04Image.from_zarr(out)
         elif version.version == "0.5":
             Models05Image.from_zarr(out)
+
+        # verify omero and image-labels metadata
+        assert image.omero is not None
+        assert image.labels[0].values[0].image_label is not None
 
     @pytest.mark.parametrize("storage_options_list", [True, False])
     def test_writer(
@@ -2172,3 +2225,7 @@ class TestLabelWriter:
         assert "labels" in attrs
         assert len(attrs["labels"]) == len(label_names)
         assert all(label_name in attrs["labels"] for label_name in label_names)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
