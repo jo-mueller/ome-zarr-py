@@ -1137,31 +1137,37 @@ class TestWriter:
             path = str(level)
             random_data = np.random.rand(125 >> level, 125 >> level)
             root_v3.create(path, data=random_data)
-            
-            datasets.append({
-                "path": path,
-                "coordinateTransformations": [{
-                    "type": "scale",
-                    "scale": [2**level, 2**level],
-                    "input": {"path": path},
-                    "output": {"name": "physical"}
-                }]
-            })
+
+            datasets.append(
+                {
+                    "path": path,
+                    "coordinateTransformations": [
+                        {
+                            "type": "scale",
+                            "scale": [2**level, 2**level],
+                            "input": {"path": path},
+                            "output": {"name": "physical"},
+                        }
+                    ],
+                }
+            )
 
         # Write metadata with non-normalized paths directly (bypassing writer)
         root_v3.attrs["ome"] = {
             "version": "0.6",
-            "multiscales": [{
-                "coordinateSystems": [
-                    {
-                        "name": "physical",
-                        "axes": [
-                            {"name": ax, "type": "space"} for ax in ["y", "x"]
-                        ]
-                    }
-                ],
-                "datasets": datasets,
-            }]
+            "multiscales": [
+                {
+                    "coordinateSystems": [
+                        {
+                            "name": "physical",
+                            "axes": [
+                                {"name": ax, "type": "space"} for ax in ["y", "x"]
+                            ],
+                        }
+                    ],
+                    "datasets": datasets,
+                }
+            ],
         }
 
         # Read back and verify paths were normalized to s0, s1, s2
@@ -1181,7 +1187,6 @@ class TestWriter:
             assert d["path"] == f"s{i}"
             assert d["coordinateTransformations"][0]["input"]["path"] == f"s{i}"
             assert d["coordinateTransformations"][0]["output"]["name"] == "physical"
-
 
 
 class TestMultiscalesMetadata:

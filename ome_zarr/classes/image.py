@@ -401,7 +401,8 @@ class OMEZarrMultiscaleBase:
                 if transform.input is None:
                     raise ValueError(
                         f"Transform input cannot be None in dataset {idx} "
-                        f"transform {transform}")
+                        f"transform {transform}"
+                    )
                 transform = transform.model_copy(
                     update={"input": transform.input.model_copy(update={"path": path})}
                 )
