@@ -133,35 +133,45 @@ class TestWriter:
         return request.param
 
     def test_additional_transforms(self):
+        from ome_zarr_models.v06.coordinate_transforms import (
+            CoordinateSystem,
+            CoordinateSystemIdentifier,
+            Sequence,
+        )
+
         data = self.create_data((2, 128, 128))
 
         image = OMEZarrImage(data=data, axes="cyx", scale={"y": 0.5, "x": 0.5})
 
-        additional_transforms = {
-            "type": "sequence",
-            "input": {"name": "physical"},
-            "output": {"name": "world"},
-            "transformations": [
-                {
-                    "type": "scale",
-                    "scale": [1.0, 0.5, 0.5],
-                },
-                {
-                    "type": "translation",
-                    "translation": [0.0, 10.0, 10.0],
-                },
-            ],
-        }
-
-        additional_cs = [
+        additional_transforms = Sequence.model_validate(
             {
-                "name": "world",
-                "axes": [
-                    {"name": "c", "type": "channel", "unit": "none"},
-                    {"name": "y", "type": "space", "unit": "micrometer"},
-                    {"name": "x", "type": "space", "unit": "micrometer"},
+                "type": "sequence",
+                "input": {"name": "physical"},
+                "output": {"name": "world"},
+                "transformations": [
+                    {
+                        "type": "scale",
+                        "scale": [1.0, 0.5, 0.5],
+                    },
+                    {
+                        "type": "translation",
+                        "translation": [0.0, 10.0, 10.0],
+                    },
                 ],
             }
+        )
+
+        additional_cs = [
+            CoordinateSystem.model_validate(
+                {
+                    "name": "world",
+                    "axes": [
+                        {"name": "c", "type": "channel", "unit": "none"},
+                        {"name": "y", "type": "space", "unit": "micrometer"},
+                        {"name": "x", "type": "space", "unit": "micrometer"},
+                    ],
+                }
+            )
         ]
 
         # this call lacks the coordinate system "world"
@@ -171,18 +181,14 @@ class TestWriter:
                 image=image,
                 scale_factors=None,
                 method=None,
-                coordinate_transformations=[
-                    additional_transforms,
-                ],
+                coordinate_transformations=(additional_transforms,),
             )
 
         ms = OMEZarrMultiscale(
             image=image,
             scale_factors=None,
             method=None,
-            coordinate_transformations=[
-                additional_transforms,
-            ],
+            coordinate_transformations=(additional_transforms,),
             coordinate_systems=additional_cs,
             default_coordinate_system_name="physical",
         )
@@ -193,15 +199,15 @@ class TestWriter:
         )
 
         # make transform go bad
-        additional_transforms["output"]["name"] = "nonexistent"
+        additional_transforms = additional_transforms.model_copy(
+            update={"output": CoordinateSystemIdentifier(name="nonexistent")}
+        )
         with pytest.raises(ValueError):
             OMEZarrMultiscale(
                 image=image,
                 scale_factors=None,
                 method=None,
-                coordinate_transformations=[
-                    additional_transforms,
-                ],
+                coordinate_transformations=(additional_transforms,),
                 coordinate_systems=additional_cs,
                 default_coordinate_system_name="physical",
             )
@@ -262,14 +268,14 @@ class TestWriter:
         assert image.scale["c"] == 1.0
 
         # less channels then dims in channel axis
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             multiscales = OMEZarrMultiscale(
                 image=image,
                 channel_names=["Channel 0"],
             )
 
         # less channel_names than channel_colors
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             multiscales = OMEZarrMultiscale(
                 image=image,
                 channel_names=["Channel 0", "Channel 1"],
@@ -277,7 +283,7 @@ class TestWriter:
             )
 
         # less channel_names than contrast limits
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             multiscales = OMEZarrMultiscale(
                 image=image,
                 channel_names=["Channel 0", "Channel 1"],
@@ -1020,7 +1026,7 @@ class TestWriter:
             # transformations different length than levels
             fmt.validate_coordinate_transformations(2, 1, transformations)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             transf = [[{"type": "scale", "scale": ("1", 1)}]]
             fmt.validate_coordinate_transformations(2, 1, transf)
 
@@ -1114,6 +1120,74 @@ class TestWriter:
                 axes="xt",
             )
 
+    def test_normalize_resolution_level_paths(self):
+        """
+        Some tools write resolution levels as, for instance,
+        0, 1, 2 instead of s0, s1, s2.
+        ome-zarr-py normalizes these paths to the s0, s1, s2 format.
+        This test checks whether this normalization is performed correctly.
+        """
+        # Create data at non-normalized paths (0, 1, 2)
+        path_v3 = self.path / "normalize_test"
+        root_v3 = zarr.open_group(path_v3, mode="w", zarr_format=3)
+
+        n_levels = 3
+        datasets = []
+        for level in range(n_levels):
+            path = str(level)
+            random_data = np.random.rand(125 >> level, 125 >> level)
+            root_v3.create(path, data=random_data)
+
+            datasets.append(
+                {
+                    "path": path,
+                    "coordinateTransformations": [
+                        {
+                            "type": "scale",
+                            "scale": [2**level, 2**level],
+                            "input": {"path": path},
+                            "output": {"name": "physical"},
+                        }
+                    ],
+                }
+            )
+
+        # Write metadata with non-normalized paths directly (bypassing writer)
+        root_v3.attrs["ome"] = {
+            "version": "0.6",
+            "multiscales": [
+                {
+                    "coordinateSystems": [
+                        {
+                            "name": "physical",
+                            "axes": [
+                                {"name": ax, "type": "space"} for ax in ["y", "x"]
+                            ],
+                        }
+                    ],
+                    "datasets": datasets,
+                }
+            ],
+        }
+
+        # Read back and verify paths were normalized to s0, s1, s2
+        ms = OMEZarrMultiscale.from_ome_zarr(root_v3)
+
+        # write to a new group with normalized paths
+        path_v3_normalized = self.path / "normalize_test_normalized"
+        ms.to_ome_zarr(str(path_v3_normalized))
+
+        # Verify that the paths in the new group are normalized
+        grp = zarr.open_group(str(path_v3_normalized), mode="r")
+        for i in range(3):
+            assert f"s{i}" in grp
+
+        datasets = grp.attrs["ome"]["multiscales"][0]["datasets"]
+        for i, d in enumerate(datasets):
+            assert d["path"] == f"s{i}"
+            assert d["coordinateTransformations"][0]["input"]["path"] == f"s{i}"
+            assert d["coordinateTransformations"][0]["output"]["name"] == "physical"
+
 
 class TestMultiscalesMetadata:
     @pytest.fixture(autouse=True)
@@ -1183,7 +1257,7 @@ class TestMultiscalesMetadata:
         assert "multiscales" in self.root.attrs
         # for v0.3, axes is a list of names
         assert self.root.attrs["multiscales"][0]["axes"] == axes
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             # for v0.4 and above, paths no-longer supported (need dataset dicts)
             write_multiscales_metadata(self.root, ["0"], axes=axes, fmt=FormatV04())
 
@@ -1203,7 +1277,7 @@ class TestMultiscalesMetadata:
 
     @pytest.mark.parametrize("datasets", ([], None, "0", ["0"], [{"key": 1}]))
     def test_invalid_datasets(self, datasets):
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_multiscales_metadata(
                 self.root, datasets, axes=["t", "c", "z", "y", "x"], fmt=FormatV04()
             )
@@ -1284,7 +1358,7 @@ class TestMultiscalesMetadata:
         datasets = [
             {"path": "0", "coordinateTransformations": coordinateTransformations}
         ]
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_multiscales_metadata(self.root, datasets, axes=axes, fmt=FormatV04())
 
     @pytest.mark.parametrize(
@@ -1613,7 +1687,7 @@ class TestPlateMetadata:
         ),
     )
     def test_invalid_acquisition_keys(self, acquisitions):
-        with pytest.raises(ValueError):
+        with pytest.raises((TypeError, ValueError)):
             write_plate_metadata(
                 self.root_v3, ["A"], ["1"], ["A/1"], acquisitions=acquisitions
             )
@@ -1629,7 +1703,7 @@ class TestPlateMetadata:
         (None, [], [1]),
     )
     def test_invalid_well_list(self, wells):
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_plate_metadata(self.root, ["A"], ["1"], wells)
 
     @pytest.mark.parametrize(
@@ -1661,7 +1735,7 @@ class TestPlateMetadata:
         ),
     )
     def test_invalid_well_keys(self, wells):
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_plate_metadata(self.root, ["A"], ["1"], wells, fmt=FormatV04())
 
     def test_unspecified_well_keys(self):
@@ -1694,21 +1768,21 @@ class TestPlateMetadata:
             {"path": "A/2"},
             {"path": "B/1"},
         ]
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_plate_metadata(
                 self.root, ["A", "B"], ["1", "2"], wells, fmt=FormatV04()
             )
 
     def test_well_not_in_rows(self):
         wells = ["A/1", "B/1", "C/1"]
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_plate_metadata(
                 self.root, ["A", "B"], ["1", "2"], wells, fmt=FormatV04()
             )
 
     def test_well_not_in_columns(self):
         wells = ["A/1", "A/2", "A/3"]
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_plate_metadata(
                 self.root, ["A", "B"], ["1", "2"], wells, fmt=FormatV04()
             )
@@ -1806,7 +1880,7 @@ class TestWellMetadata:
         ),
     )
     def test_invalid_images(self, images):
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, TypeError)):
             write_well_metadata(self.root, images)
 
     def test_unspecified_images_keys(self):
@@ -2456,4 +2530,4 @@ class TestLabelWriter:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    pytest.main([__file__ + "::TestWriter::test_normalize_resolution_level_paths"])

@@ -31,7 +31,7 @@ from ome_zarr_models.v06.multiscales import (
 from ome_zarr_models.v06.multiscales import (
     Multiscale as MultiscaleV06,
 )
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from ome_zarr.scale import Methods
 
@@ -159,10 +159,8 @@ class OMEZarrMultiscaleBase:
         self,
         image: OMEZarrImage,
         scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = None,
-        coordinate_transformations: (
-            tuple[AnyTransform, ...] | list[dict[str, Any]] | None
-        ) = None,
-        coordinate_systems: list[CoordinateSystem] | list[dict[str, Any]] | None = None,
+        coordinate_transformations: tuple[AnyTransform, ...] | None = None,
+        coordinate_systems: list[CoordinateSystem] | None = None,
         method: str | Methods | None = Methods.RESIZE,
         default_coordinate_system_name: str = "physical",
     ):
@@ -192,7 +190,7 @@ class OMEZarrMultiscaleBase:
         # image.scale is guaranteed to be a dict after NgffImage.__post_init__
         image_scale = image.scale
         if not isinstance(image_scale, dict):
-            raise ValueError("Expected image.scale to be a dict after initialization")
+            raise TypeError("Expected image.scale to be a dict after initialization")
 
         for shape in [d.shape for d in pyramid]:
             scale = [full / level for full, level in zip(image.data.shape, shape)]
@@ -266,14 +264,7 @@ class OMEZarrMultiscaleBase:
             # coerce coordinate_systems to ozmp object if passed as dict
             additional_cs = []
             for idx, cs in enumerate(coordinate_systems):
-                if isinstance(cs, dict):
-                    additional_cs.append(
-                        TypeAdapter(CoordinateSystem).validate_python(cs)
-                    )
-                elif isinstance(cs, CoordinateSystem):
-                    additional_cs.append(cs)
-                else:
-                    raise ValueError(f"Invalid coordinate system at index {idx}: {cs}")
+                additional_cs.append(cs)
 
         coordinate_systems = [
             CoordinateSystem(
@@ -287,14 +278,7 @@ class OMEZarrMultiscaleBase:
         if coordinate_transformations is not None:
             transforms = []
             for idx, tf in enumerate(coordinate_transformations):
-                if isinstance(tf, dict):
-                    transforms.append(TypeAdapter(AnyTransform).validate_python(tf))
-                elif tf is AnyTransform:
-                    transforms.append(tf)
-                else:
-                    raise ValueError(
-                        f"Invalid coordinate transformation at index {idx}: {tf}"
-                    )
+                transforms.append(tf)
             transforms = tuple(transforms)
 
             # Some checks on the transform's input and output coordinate system
@@ -410,10 +394,23 @@ class OMEZarrMultiscaleBase:
         if write_image_data:
             # Create a copy of metadata with normalized paths (s0, s1, etc.)
             # to match the paths used by _write_pyramid_to_zarr
-            write_datasets = tuple(
-                ds.model_copy(update={"path": f"s{idx}"})
-                for idx, ds in enumerate(self.metadata.datasets)
-            )
+            write_datasets = []
+            for idx, ds in enumerate(self.metadata.datasets):
+                path = f"s{idx}"
+                transform = ds.coordinateTransformations[0]
+                if transform.input is None:
+                    raise ValueError(
+                        f"Transform input cannot be None in dataset {idx} "
+                        f"transform {transform}"
+                    )
+                transform = transform.model_copy(
+                    update={"input": transform.input.model_copy(update={"path": path})}
+                )
+                dataset = ds.model_copy(
+                    update={"path": path, "coordinateTransformations": (transform,)}
+                )
+                write_datasets.append(dataset)
+
             write_metadata = self.metadata.model_copy(
                 update={"datasets": write_datasets}
             )
@@ -485,7 +482,7 @@ class OMEZarrMultiscaleBase:
         if isinstance(group, str):
             opened = zarr.open(group, mode="r")
             if not isinstance(opened, zarr.Group):
-                raise ValueError(f"Expected a zarr.Group but got {type(opened)}")
+                raise TypeError(f"Expected a zarr.Group but got {type(opened)}")
             group = opened
 
         version = _get_version(group)
@@ -814,10 +811,8 @@ class OMEZarrMultiscale(OMEZarrMultiscaleBase):
         image: OMEZarrImage,
         scale_factors: list[int] | tuple[int, ...] | list[dict[str, int]] | None = None,
         method: str | Methods | None = Methods.RESIZE,
-        coordinate_transformations: (
-            tuple[AnyTransform, ...] | list[dict[str, Any]] | None
-        ) = None,
-        coordinate_systems: list[CoordinateSystem] | list[dict[str, Any]] | None = None,
+        coordinate_transformations: tuple[AnyTransform, ...] | None = None,
+        coordinate_systems: list[CoordinateSystem] | None = None,
         default_coordinate_system_name: str = "physical",
         labels: (
             OMEZarrLabels | list[OMEZarrLabels] | dict[str, OMEZarrLabels] | None
@@ -931,7 +926,7 @@ class OMEZarrMultiscale(OMEZarrMultiscaleBase):
         # Make sure that all channel descriptors line up with the data dimensions
         for param in [channel_names, channel_colors, contrast_limits]:
             if param is not None and len(param) != n_channels:
-                raise ValueError(
+                raise TypeError(
                     f"Length of {param} ({len(param)}) does not match "
                     f"number of channels ({n_channels})"
                 )
