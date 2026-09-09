@@ -4,6 +4,7 @@ fsspec
 zarr>=v3.0.0
 jupytext
 matplotlib
+pooch
 dask
 numpy
 rangehttpserver
