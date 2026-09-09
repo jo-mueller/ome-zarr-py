@@ -3,6 +3,7 @@ sphinx-rtd-theme==3.0.2
 fsspec
 zarr>=v3.0.0
 jupytext
+matplotlib
 dask
 numpy
 rangehttpserver

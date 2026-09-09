@@ -35,6 +35,14 @@ nb_custom_formats = {
 }
 nb_execution_mode = "force"
 
+# Register .py as a valid source suffix so sphinx-external-toc can resolve it
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "myst-nb",
+    ".ipynb": "myst-nb",
+    ".py": "myst-nb",
+}
+
 myst_enable_extensions = [
     "colon_fence",
     "dollarmath",
