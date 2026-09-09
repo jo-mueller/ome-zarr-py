@@ -1,14 +1,14 @@
 # %% [markdown]
 # # Transforms with changing dimensionality
-# 
+#
 # A particular and important kind of transforms,
 # are transforms that change the dimensionality of the data.
 # Common examples for this case are:
 # - 2D to 3D transforms, e.g. for aligning a 2D slice to a 3D volume
 # - 2D + channel to 2D transforms, e.g. for aligning a 2D slice with multiple channels to a 2D slice with a single channel
-# 
+#
 # The transform that expresses this change in dimensionality is the [`ProjectAxis` transform](https://ngff.openmicroscopy.org/specifications/dev/index.html#projectaxis).
-# 
+#
 # This tutorial demonstrates its usage for the case of a 2D to 3D transform,
 # where a 2D slice is aligned to a 3D volume.
 
@@ -74,5 +74,3 @@ scene = OMEZarrScene(
 
 # %%
 scene.to_ome_zarr("scene_2d_to_3d.zarr", overwrite=True)
-
-

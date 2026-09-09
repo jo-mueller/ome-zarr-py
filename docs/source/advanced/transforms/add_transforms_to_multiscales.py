@@ -1,6 +1,6 @@
 # %% [markdown]
 # # Adding transformations to multiscale images
-# 
+#
 # Adding transformations to individual multiscale images is a way to enrich the metadata associated with the image.
 # This can be useful to inform implementations on how to view or interpret the image data,
 # i.e. if an image is supposed to be viewed with a rotation or a shear applied.
@@ -28,12 +28,12 @@ ms.metadata.coordinateSystems
 # The coordinate systems are stored as `CoordinateSystem` objects internally.
 # To extend a multiscales to include additional coordinate systems, these objects need to be created up front and then passed to the `OMEZarrMultiscale` constructor.
 # ```
-# 
+#
 # To attach another transformation to the multiscale image,
 # we need to specify both the transform as well as the coordinate system it outputs to.
 # In this case, we define a rotation transformation that outputs into a "world" coordinate system.
 # The rotation transformation is written as a [rotation matrix](https://en.wikipedia.org/wiki/Rotation_matrix) $R$ that rotates the image by an angle of 45 degrees (counter-clockwise):
-# 
+#
 # $
 # R = \begin{bmatrix}
 # \cos(45°) & -\sin(45°) \\
@@ -43,7 +43,7 @@ ms.metadata.coordinateSystems
 # \sin(\pi/4) & \cos(\pi/4)
 # \end{bmatrix}
 # $
-# 
+#
 # ```{warning}
 # Saving transformations metadata is only supported in ome-zarr versions beyond `0.6.dev4`.
 # The desired ome-zarr version can be specified on write with the `version` parameter of the `to_ome_zarr` method.
@@ -83,9 +83,9 @@ ms = OMEZarrMultiscale(
 # %% [markdown]
 # And that's it! A viewer could now choose to show your image in the "world" coordinate system,
 # which would apply the rotation transformation to the image data, such as this:
-# 
+#
 # ![Rotated image](imgs/rotated_multiscales.png)
-# 
+#
 # For more information of how to construct transformations, see the [respective section of the specification](https://ngff.openmicroscopy.org/specifications/dev/index.html#coordinatetransformations-metadata).
 
 # %%
@@ -94,5 +94,3 @@ ms.to_ome_zarr(
     version="0.6",  # specify the desired ome-zarr version
     overwrite=True,
 )
-
-

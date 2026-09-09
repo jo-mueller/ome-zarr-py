@@ -1,8 +1,8 @@
 # %% [markdown]
 # # Create Scenes
-# 
+#
 # (advanced:create-scenes)=
-# 
+#
 # This tutorial demonstrates basic usage around writing and reading [Ngff Scenes](https://ngff.openmicroscopy.org/specifications/dev/index.html#scene-metadata) using the `OMEZarrScene` class.
 
 # %%
@@ -54,11 +54,11 @@ coordinate_system = CoordinateSystem.model_validate({
 # coordinate_system = CoordinateSystem.model_validate({...})
 # coordinate_system = CoordinateSystem(name="world", axes=[...])
 # ```
-# 
+#
 # In the second case, the `axes` argument would need to be populated with the respective `Axis` instances.
-# 
+#
 # ::::
-# 
+#
 # We then define translations that move each tile into the appropriate position in the world coordinate system.
 # In this example, these are simple translations in the y and x dimensions:
 
@@ -110,6 +110,3 @@ loaded_scene = OMEZarrScene.from_ome_zarr("test_example_scene.zarr")
 loaded_scene.coordinate_transformations
 
 # %%
-
-
-
