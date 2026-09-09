@@ -1,10 +1,14 @@
 import pathlib
+import shutil
 import sys
 
 # alternative is to make code installable (which it is!)
 sys.path.insert(0, pathlib.Path(__file__).parents[2].resolve().as_posix())
 
-exclude_patterns = ["**.ipynb_checkpoints", ".DS_Store", "Thumbs.db", "_build"]
+# clean up .zarr dirs left over from previous notebook executions
+for p in pathlib.Path(__file__).parent.glob("**/*.zarr"):
+    shutil.rmtree(p)
+print("✅ Cleaned up .zarr objects")
 extensions = [
     "sphinx_togglebutton",
     "sphinx_copybutton",
